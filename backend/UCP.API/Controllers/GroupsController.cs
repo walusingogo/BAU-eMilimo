@@ -1,0 +1,418 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using UCP.Core.Entities;
+using UCP.Core.Enums;
+using UCP.Infrastructure.Data;
+
+namespace UCP.API.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    [Authorize]
+    public class GroupsController : ControllerBase
+    {
+        private readonly AppDbContext _context;
+
+        public GroupsController(AppDbContext context)
+        {
+            _context = context;
+        }
+
+        // ==========================================
+        // GET: api/groups
+        // ==========================================
+        [HttpGet]
+        public async Task<IActionResult> GetAll([FromQuery] string? type = null, [FromQuery] bool includeDisabled = false)
+        {
+            var query = _context.Groups.AsQueryable();
+
+            if (!includeDisabled)
+                query = query.Where(g => g.IsActive);
+
+            if (!string.IsNullOrEmpty(type))
+                query = query.Where(g => g.GroupType == type);
+
+            var groups = await query
+                .OrderBy(g => g.GroupName)
+                .Select(g => new
+                {
+                    g.Id,
+                    g.GroupName,
+                    g.GroupType,
+                    g.Description,
+                    g.LeaderId,
+                    g.ParentGroupId,
+                    g.IsActive,
+                    g.CreatedDate,
+                    g.UpdatedDate
+                })
+                .ToListAsync();
+
+            return Ok(groups);
+        }
+
+        // ==========================================
+        // GET: api/groups/active
+        // ==========================================
+        [HttpGet("active")]
+        public async Task<IActionResult> GetActiveGroups()
+        {
+            var groups = await _context.Groups
+                .Where(g => g.IsActive)
+                .OrderBy(g => g.GroupName)
+                .Select(g => new
+                {
+                    g.Id,
+                    g.GroupName,
+                    g.GroupType
+                })
+                .ToListAsync();
+
+            return Ok(groups);
+        }
+
+        // ==========================================
+        // GET: api/groups/{id}
+        // ==========================================
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetById(Guid id)
+        {
+            var group = await _context.Groups
+                .Where(g => g.Id == id)
+                .Select(g => new
+                {
+                    g.Id,
+                    g.GroupName,
+                    g.GroupType,
+                    g.Description,
+                    g.LeaderId,
+                    g.ParentGroupId,
+                    g.IsActive,
+                    g.CreatedDate,
+                    g.UpdatedDate
+                })
+                .FirstOrDefaultAsync();
+
+            if (group == null)
+                return NotFound(new { Message = "Group not found" });
+
+            return Ok(group);
+        }
+
+        // ==========================================
+        // GET: api/groups/with-balances
+        // ==========================================
+        [HttpGet("with-balances")]
+        public async Task<IActionResult> GetGroupsWithBalances()
+        {
+            var fiscalYear = DateTime.UtcNow.Year;
+            var groups = await _context.Groups
+                .Where(g => g.IsActive)
+                .Select(g => new
+                {
+                    g.Id,
+                    g.GroupName,
+                    g.GroupType,
+                    g.Description,
+                    g.IsActive,
+                    Balance = _context.FundBalances
+                        .Where(fb => fb.GroupId == g.Id && fb.FiscalYear == fiscalYear)
+                        .Select(fb => new
+                        {
+                            fb.BudgetedBalance,
+                            fb.OwnFundsBalance,
+                            fb.CommittedBudgetedBalance,
+                            fb.CommittedOwnFundsBalance,
+                            AvailableBudgeted = fb.BudgetedBalance - fb.CommittedBudgetedBalance,
+                            AvailableOwnFunds = fb.OwnFundsBalance - fb.CommittedOwnFundsBalance
+                        })
+                        .FirstOrDefault()
+                })
+                .ToListAsync();
+
+            return Ok(groups);
+        }
+
+        // ==========================================
+        // POST: api/groups
+        // ==========================================
+        [HttpPost]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> Create([FromBody] CreateGroupDto dto)
+        {
+            // Validate group type
+            if (!new[] { "Section", "ChurchGroup", "Committee" }.Contains(dto.GroupType))
+                return BadRequest(new { Message = "Invalid GroupType. Allowed: Section, ChurchGroup, Committee" });
+
+            // Check for duplicate name (case-insensitive)
+            var exists = await _context.Groups
+                .AnyAsync(g => g.GroupName.ToLower() == dto.GroupName.ToLower() && g.IsActive);
+            if (exists)
+                return Conflict(new { Message = "A group with this name already exists." });
+
+            var group = new Group
+            {
+                Id = Guid.NewGuid(),
+                GroupName = dto.GroupName,
+                Description = dto.Description,
+                GroupType = dto.GroupType,
+                IsActive = true,
+                LeaderId = dto.LeaderId,
+                ParentGroupId = dto.ParentGroupId,
+                CreatedDate = DateTime.UtcNow,
+                UpdatedDate = DateTime.UtcNow,
+                LastProcessedTimeStamp = DateTime.UtcNow,
+                Version = 1
+            };
+
+            _context.Groups.Add(group);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction(nameof(GetById), new { id = group.Id }, new
+            {
+                group.Id,
+                group.GroupName,
+                group.GroupType,
+                group.Description,
+                group.IsActive
+            });
+        }
+
+        // ==========================================
+        // POST: api/groups/{id}/add-funds
+        // ==========================================
+        [HttpPost("{id}/add-funds")]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> AddFunds(Guid id, [FromBody] AddFundsDto dto)
+        {
+            var fiscalYear = DateTime.UtcNow.Year;
+            
+            // Try to find existing balance
+            var balance = await _context.FundBalances
+                .FirstOrDefaultAsync(fb => fb.GroupId == id && fb.FiscalYear == fiscalYear);
+
+            // If no balance record exists, create one
+            if (balance == null)
+            {
+                balance = new FundBalance
+                {
+                    Id = Guid.NewGuid(),
+                    GroupId = id,
+                    FiscalYear = fiscalYear,
+                    BudgetedBalance = 0,
+                    OwnFundsBalance = 0,
+                    CommittedBudgetedBalance = 0,
+                    CommittedOwnFundsBalance = 0,
+                    CreatedDate = DateTime.UtcNow,
+                    UpdatedDate = DateTime.UtcNow,
+                    LastProcessedTimeStamp = DateTime.UtcNow,
+                    Version = 1
+                };
+                _context.FundBalances.Add(balance);
+            }
+
+            // Only allow positive additions
+            if (dto.BudgetedAmount < 0 || dto.OwnFundsAmount < 0)
+                return BadRequest(new { Message = "Amounts must be positive." });
+
+            balance.BudgetedBalance += dto.BudgetedAmount;
+            balance.OwnFundsBalance += dto.OwnFundsAmount;
+            balance.UpdatedDate = DateTime.UtcNow;
+            balance.Version++;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                balance.BudgetedBalance,
+                balance.OwnFundsBalance,
+                balance.CommittedBudgetedBalance,
+                balance.CommittedOwnFundsBalance,
+                AvailableBudgeted = balance.BudgetedBalance - balance.CommittedBudgetedBalance,
+                AvailableOwnFunds = balance.OwnFundsBalance - balance.CommittedOwnFundsBalance
+            });
+        }
+
+        // ==========================================
+        // POST: api/groups/{id}/disable
+        // ==========================================
+        [HttpPost("{id}/disable")]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> Disable(Guid id)
+        {
+            var group = await _context.Groups.FindAsync(id);
+            if (group == null)
+                return NotFound(new { Message = "Group not found" });
+
+            if (!group.IsActive)
+                return BadRequest(new { Message = "Group is already disabled." });
+
+            // Check if group is used in any active requisitions
+            var hasActiveRequisitions = await _context.Requisitions
+                .AnyAsync(r => r.GroupId == id && r.IsArchived == false);
+            if (hasActiveRequisitions)
+                return Conflict(new { Message = "Cannot disable group that has active requisitions." });
+
+            group.IsActive = false;
+            group.UpdatedDate = DateTime.UtcNow;
+            group.LastProcessedTimeStamp = DateTime.UtcNow;
+            group.Version++;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Message = "Group disabled successfully.",
+                GroupId = group.Id,
+                GroupName = group.GroupName
+            });
+        }
+
+        // ==========================================
+        // POST: api/groups/{id}/reactivate
+        // ==========================================
+        [HttpPost("{id}/reactivate")]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> Reactivate(Guid id)
+        {
+            var group = await _context.Groups.FindAsync(id);
+            if (group == null)
+                return NotFound(new { Message = "Group not found" });
+
+            if (group.IsActive)
+                return BadRequest(new { Message = "Group is already active." });
+
+            group.IsActive = true;
+            group.UpdatedDate = DateTime.UtcNow;
+            group.LastProcessedTimeStamp = DateTime.UtcNow;
+            group.Version++;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Message = "Group reactivated successfully.",
+                GroupId = group.Id,
+                GroupName = group.GroupName
+            });
+        }
+
+        // ==========================================
+        // PUT: api/groups/{id}
+        // ==========================================
+        [HttpPut("{id}")]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> Update(Guid id, [FromBody] UpdateGroupDto dto)
+        {
+            var group = await _context.Groups.FindAsync(id);
+            if (group == null)
+                return NotFound(new { Message = "Group not found" });
+
+            // Validate group type if provided
+            if (!string.IsNullOrEmpty(dto.GroupType) &&
+                !new[] { "Section", "ChurchGroup", "Committee" }.Contains(dto.GroupType))
+                return BadRequest(new { Message = "Invalid GroupType. Allowed: Section, ChurchGroup, Committee" });
+
+            // Check for duplicate name if name is being changed
+            if (!string.IsNullOrEmpty(dto.GroupName) && dto.GroupName != group.GroupName)
+            {
+                var exists = await _context.Groups
+                    .AnyAsync(g => g.GroupName.ToLower() == dto.GroupName.ToLower() && g.Id != id && g.IsActive);
+                if (exists)
+                    return Conflict(new { Message = "A group with this name already exists." });
+            }
+
+            if (!string.IsNullOrEmpty(dto.GroupName))
+                group.GroupName = dto.GroupName;
+
+            if (dto.Description != null)
+                group.Description = dto.Description;
+
+            if (!string.IsNullOrEmpty(dto.GroupType))
+                group.GroupType = dto.GroupType;
+
+            if (dto.LeaderId.HasValue)
+                group.LeaderId = dto.LeaderId;
+
+            if (dto.ParentGroupId.HasValue)
+                group.ParentGroupId = dto.ParentGroupId;
+
+            group.UpdatedDate = DateTime.UtcNow;
+            group.LastProcessedTimeStamp = DateTime.UtcNow;
+            group.Version++;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                group.Id,
+                group.GroupName,
+                group.GroupType,
+                group.Description,
+                group.IsActive
+            });
+        }
+
+        // ==========================================
+        // GET: api/groups/types
+        // ==========================================
+        [HttpGet("types")]
+        public IActionResult GetTypes()
+        {
+            var types = new[] { "Section", "ChurchGroup", "Committee" };
+            return Ok(types);
+        }
+
+        // ==========================================
+        // GET: api/groups/search
+        // ==========================================
+        [HttpGet("search")]
+        public async Task<IActionResult> Search([FromQuery] string q)
+        {
+            if (string.IsNullOrWhiteSpace(q))
+                return Ok(new List<object>());
+
+            var groups = await _context.Groups
+                .Where(g => g.IsActive && g.GroupName.Contains(q))
+                .OrderBy(g => g.GroupName)
+                .Select(g => new
+                {
+                    g.Id,
+                    g.GroupName,
+                    g.GroupType
+                })
+                .ToListAsync();
+
+            return Ok(groups);
+        }
+    }
+
+    // ==========================================
+    // DTOs
+    // ==========================================
+
+    public class CreateGroupDto
+    {
+        public string GroupName { get; set; } = null!;
+        public string? Description { get; set; }
+        public string GroupType { get; set; } = "ChurchGroup";
+        public Guid? LeaderId { get; set; }
+        public Guid? ParentGroupId { get; set; }
+    }
+
+    public class UpdateGroupDto
+    {
+        public string? GroupName { get; set; }
+        public string? Description { get; set; }
+        public string? GroupType { get; set; }
+        public Guid? LeaderId { get; set; }
+        public Guid? ParentGroupId { get; set; }
+    }
+
+    public class AddFundsDto
+    {
+        public decimal BudgetedAmount { get; set; }
+        public decimal OwnFundsAmount { get; set; }
+    }
+}
