@@ -12,6 +12,12 @@ using UCP.Infrastructure.SeedData;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Ensure wwwroot exists BEFORE the host builds its static file provider,
+// otherwise ASP.NET Core falls back to a NullFileProvider and static files
+// created later at runtime will never be served without a restart.
+var webRootPath = Path.Combine(builder.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(webRootPath);
+
 // ============================================
 // CONFIGURE SERVICES
 // ============================================

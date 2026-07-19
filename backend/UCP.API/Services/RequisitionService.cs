@@ -112,7 +112,6 @@ namespace UCP.API.Services
                 Payee = dto.Payee,
                 PaymentMethod = dto.PaymentMethod.ToString(),
                 FundSource = dto.FundSource.ToString(),
-                BudgetBalance = dto.BudgetBalance ?? 0,
                 Amount = amount,
                 AmountWords = NumberToWords.Convert(amount),
                 PaymentDetails = dto.PaymentDetails,
@@ -214,6 +213,8 @@ namespace UCP.API.Services
 
             if (dto.Items != null && dto.Items.Any())
             {
+                _context.RequisitionItems.RemoveRange(requisition.Items!);
+
                 var updatedItems = dto.Items.Select(item => new RequisitionItem
                 {
                     Id = Guid.NewGuid(),

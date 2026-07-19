@@ -73,7 +73,6 @@ namespace UCP.API.Controllers
                     Payee = dto.Payee,
                     PaymentMethod = dto.PaymentMethod,
                     FundSource = dto.FundSource,
-                    BudgetBalance = dto.BudgetBalance,
                     PaymentDetails = dto.PaymentDetails,
                     Items = dto.Items
                 };

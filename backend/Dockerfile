@@ -35,6 +35,9 @@ WORKDIR /app
 # Copy published files
 COPY --from=publish /app/publish .
 
+# Ensure wwwroot/uploads exists in the image itself
+RUN mkdir -p /app/wwwroot/uploads
+
 # Set environment variable to use port 5001
 ENV ASPNETCORE_URLS=http://+:5001
 ENV ASPNETCORE_ENVIRONMENT=Production

@@ -27,7 +27,6 @@ namespace UCP.Core.DTOs
         public string Payee { get; set; } = null!;
         public PaymentMethod PaymentMethod { get; set; }
         public FundSource FundSource { get; set; }
-        public decimal? BudgetBalance { get; set; }
         public string PaymentDetails { get; set; } = null!;
         public List<CreateRequisitionItemDto> Items { get; set; } = new();
     }
@@ -79,21 +78,6 @@ namespace UCP.Core.DTOs
     // ============================================
     // NEW: Combined DTO for Requisition + Files
     // ============================================
-    
-    /*
-    public class CreateRequisitionWithFilesDto
-    {
-        /// <summary>
-        /// JSON string of CreateRequisitionDto
-        /// </summary>
-        public string RequisitionData { get; set; } = null!;
-
-        /// <summary>
-        /// List of files to attach (invoices, receipts, etc.)
-        /// </summary>
-        public List<IFormFile>? Files { get; set; }
-    }
-    */
 
     public class CreateRequisitionWithFilesDto
     {
@@ -101,7 +85,6 @@ namespace UCP.Core.DTOs
         public string Payee { get; set; } = null!;
         public PaymentMethod PaymentMethod { get; set; }
         public FundSource FundSource { get; set; }
-        public decimal? BudgetBalance { get; set; }
         public string PaymentDetails { get; set; } = null!;
         public List<CreateRequisitionItemDto> Items { get; set; } = new();
 

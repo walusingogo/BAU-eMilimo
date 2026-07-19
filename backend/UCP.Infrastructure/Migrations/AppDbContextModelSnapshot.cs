@@ -281,10 +281,6 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("archived_by_id");
 
-                    b.Property<decimal>("BudgetBalance")
-                        .HasColumnType("numeric")
-                        .HasColumnName("budget_balance");
-
                     b.Property<DateTime?>("CollectedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("collected_at");

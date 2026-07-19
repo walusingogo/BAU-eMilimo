@@ -20,7 +20,6 @@ namespace UCP.Core.Entities
         public string Payee { get; set; } = string.Empty;
         public string PaymentMethod { get; set; } = "Cash"; // Cash, Cheque, BankTransfer, MobileMoney
         public string FundSource { get; set; } = "Budgeted"; // Budgeted, OwnFunds
-        public decimal BudgetBalance { get; set; } = 0;
         public decimal Amount { get; set; }
         public string AmountWords { get; set; } = string.Empty;
         public string PaymentDetails { get; set; } = string.Empty;

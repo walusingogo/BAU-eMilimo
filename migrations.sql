@@ -102,7 +102,6 @@ CREATE TABLE requisitions (
     payee text NOT NULL,
     payment_method text NOT NULL,
     fund_source text NOT NULL,
-    budget_balance numeric NOT NULL,
     amount numeric NOT NULL,
     amount_words text NOT NULL,
     payment_details text NOT NULL,

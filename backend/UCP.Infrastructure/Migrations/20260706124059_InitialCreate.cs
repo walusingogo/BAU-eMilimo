@@ -164,7 +164,6 @@ namespace UCP.Infrastructure.Migrations
                     payee = table.Column<string>(type: "text", nullable: false),
                     payment_method = table.Column<string>(type: "text", nullable: false),
                     fund_source = table.Column<string>(type: "text", nullable: false),
-                    budget_balance = table.Column<decimal>(type: "numeric", nullable: false),
                     amount = table.Column<decimal>(type: "numeric", nullable: false),
                     amount_words = table.Column<string>(type: "text", nullable: false),
                     payment_details = table.Column<string>(type: "text", nullable: false),

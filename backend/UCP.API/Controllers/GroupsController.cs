@@ -141,11 +141,9 @@ namespace UCP.API.Controllers
         [Authorize(Roles = "SuperAdmin,Admin")]
         public async Task<IActionResult> Create([FromBody] CreateGroupDto dto)
         {
-            // Validate group type
             if (!new[] { "Section", "ChurchGroup", "Committee" }.Contains(dto.GroupType))
                 return BadRequest(new { Message = "Invalid GroupType. Allowed: Section, ChurchGroup, Committee" });
 
-            // Check for duplicate name (case-insensitive)
             var exists = await _context.Groups
                 .AnyAsync(g => g.GroupName.ToLower() == dto.GroupName.ToLower() && g.IsActive);
             if (exists)
@@ -180,7 +178,7 @@ namespace UCP.API.Controllers
         }
 
         // ==========================================
-        // POST: api/groups/{id}/add-funds
+        // POST: api/groups/{id}/add-funds (UPDATED)
         // ==========================================
         [HttpPost("{id}/add-funds")]
         [Authorize(Roles = "SuperAdmin,Admin")]
@@ -188,11 +186,9 @@ namespace UCP.API.Controllers
         {
             var fiscalYear = DateTime.UtcNow.Year;
             
-            // Try to find existing balance
             var balance = await _context.FundBalances
                 .FirstOrDefaultAsync(fb => fb.GroupId == id && fb.FiscalYear == fiscalYear);
 
-            // If no balance record exists, create one
             if (balance == null)
             {
                 balance = new FundBalance
@@ -212,10 +208,14 @@ namespace UCP.API.Controllers
                 _context.FundBalances.Add(balance);
             }
 
-            // Only allow positive additions
-            if (dto.BudgetedAmount < 0 || dto.OwnFundsAmount < 0)
-                return BadRequest(new { Message = "Amounts must be positive." });
+            // Prevent negative balances
+            if (balance.BudgetedBalance + dto.BudgetedAmount < 0)
+                return BadRequest(new { Message = "Budgeted balance cannot go negative." });
 
+            if (balance.OwnFundsBalance + dto.OwnFundsAmount < 0)
+                return BadRequest(new { Message = "Own funds balance cannot go negative." });
+
+            // Apply adjustment (supports both positive and negative values)
             balance.BudgetedBalance += dto.BudgetedAmount;
             balance.OwnFundsBalance += dto.OwnFundsAmount;
             balance.UpdatedDate = DateTime.UtcNow;
@@ -230,7 +230,13 @@ namespace UCP.API.Controllers
                 balance.CommittedBudgetedBalance,
                 balance.CommittedOwnFundsBalance,
                 AvailableBudgeted = balance.BudgetedBalance - balance.CommittedBudgetedBalance,
-                AvailableOwnFunds = balance.OwnFundsBalance - balance.CommittedOwnFundsBalance
+                AvailableOwnFunds = balance.OwnFundsBalance - balance.CommittedOwnFundsBalance,
+                Message = "Funds updated successfully.",
+                Adjustment = new
+                {
+                    BudgetedAmount = dto.BudgetedAmount,
+                    OwnFundsAmount = dto.OwnFundsAmount
+                }
             });
         }
 
@@ -248,7 +254,6 @@ namespace UCP.API.Controllers
             if (!group.IsActive)
                 return BadRequest(new { Message = "Group is already disabled." });
 
-            // Check if group is used in any active requisitions
             var hasActiveRequisitions = await _context.Requisitions
                 .AnyAsync(r => r.GroupId == id && r.IsArchived == false);
             if (hasActiveRequisitions)
@@ -309,12 +314,10 @@ namespace UCP.API.Controllers
             if (group == null)
                 return NotFound(new { Message = "Group not found" });
 
-            // Validate group type if provided
             if (!string.IsNullOrEmpty(dto.GroupType) &&
                 !new[] { "Section", "ChurchGroup", "Committee" }.Contains(dto.GroupType))
                 return BadRequest(new { Message = "Invalid GroupType. Allowed: Section, ChurchGroup, Committee" });
 
-            // Check for duplicate name if name is being changed
             if (!string.IsNullOrEmpty(dto.GroupName) && dto.GroupName != group.GroupName)
             {
                 var exists = await _context.Groups
