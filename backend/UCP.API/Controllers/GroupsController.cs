@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
+using UCP.API.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using UCP.Core.Entities;
 using UCP.Core.Enums;
 using UCP.Infrastructure.Data;
+using UCP.Core.Services;
 
 namespace UCP.API.Controllers
 {
@@ -13,10 +15,14 @@ namespace UCP.API.Controllers
     public class GroupsController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IGroupAccessService _groupAccess;
+        private readonly ICurrentUserService _currentUser;
 
-        public GroupsController(AppDbContext context)
+        public GroupsController(AppDbContext context, IGroupAccessService groupAccess, ICurrentUserService currentUser)
         {
             _context = context;
+            _groupAccess = groupAccess;
+            _currentUser = currentUser;
         }
 
         // ==========================================
@@ -26,6 +32,13 @@ namespace UCP.API.Controllers
         public async Task<IActionResult> GetAll([FromQuery] string? type = null, [FromQuery] bool includeDisabled = false)
         {
             var query = _context.Groups.AsQueryable();
+            query = query.Where(g => g.GroupType == "ChurchGroup");
+
+            if (!_groupAccess.HasGlobalAccess())
+            {
+                var accessibleIds = await _groupAccess.GetAccessibleGroupIdsAsync();
+                query = query.Where(g => accessibleIds.Contains(g.Id));
+            }
 
             if (!includeDisabled)
                 query = query.Where(g => g.IsActive);
@@ -58,7 +71,15 @@ namespace UCP.API.Controllers
         [HttpGet("active")]
         public async Task<IActionResult> GetActiveGroups()
         {
-            var groups = await _context.Groups
+            var query = _context.Groups.AsQueryable();
+            query = query.Where(g => g.GroupType == "ChurchGroup");
+            if (!_groupAccess.HasGlobalAccess())
+            {
+                var accessibleIds = await _groupAccess.GetAccessibleGroupIdsAsync();
+                query = query.Where(g => accessibleIds.Contains(g.Id));
+            }
+
+            var groups = await query
                 .Where(g => g.IsActive)
                 .OrderBy(g => g.GroupName)
                 .Select(g => new
@@ -78,8 +99,11 @@ namespace UCP.API.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+            if (!await _groupAccess.CanAccessGroupAsync(id))
+                return Forbid();
+
             var group = await _context.Groups
-                .Where(g => g.Id == id)
+                .Where(g => g.Id == id && g.GroupType == "ChurchGroup")
                 .Select(g => new
                 {
                     g.Id,
@@ -104,11 +128,20 @@ namespace UCP.API.Controllers
         // GET: api/groups/with-balances
         // ==========================================
         [HttpGet("with-balances")]
-        public async Task<IActionResult> GetGroupsWithBalances()
+        public async Task<IActionResult> GetGroupsWithBalances([FromQuery] bool includeDisabled = false)
         {
             var fiscalYear = DateTime.UtcNow.Year;
-            var groups = await _context.Groups
-                .Where(g => g.IsActive)
+            var query = _context.Groups.AsQueryable();
+            query = query.Where(g => g.GroupType == "ChurchGroup");
+            if (!_groupAccess.HasGlobalAccess())
+            {
+                var accessibleIds = await _groupAccess.GetAccessibleGroupIdsAsync();
+                query = query.Where(g => accessibleIds.Contains(g.Id));
+            }
+            if (!includeDisabled)
+                query = query.Where(g => g.IsActive);
+
+            var groups = await query
                 .Select(g => new
                 {
                     g.Id,
@@ -138,11 +171,12 @@ namespace UCP.API.Controllers
         // POST: api/groups
         // ==========================================
         [HttpPost]
-        [Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize]
+        [RequirePermission("groups.manage")]
         public async Task<IActionResult> Create([FromBody] CreateGroupDto dto)
         {
-            if (!new[] { "Section", "ChurchGroup", "Committee" }.Contains(dto.GroupType))
-                return BadRequest(new { Message = "Invalid GroupType. Allowed: Section, ChurchGroup, Committee" });
+            if (dto.GroupType != "ChurchGroup")
+                return BadRequest(new { Message = "Groups may only use the ChurchGroup type. Use the Sections or Committees API for those records." });
 
             var exists = await _context.Groups
                 .AnyAsync(g => g.GroupName.ToLower() == dto.GroupName.ToLower() && g.IsActive);
@@ -181,9 +215,16 @@ namespace UCP.API.Controllers
         // POST: api/groups/{id}/add-funds (UPDATED)
         // ==========================================
         [HttpPost("{id}/add-funds")]
-        [Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize]
+        [RequirePermission("groups.manage")]
         public async Task<IActionResult> AddFunds(Guid id, [FromBody] AddFundsDto dto)
         {
+            if (dto.BudgetedAmount == 0 && dto.OwnFundsAmount == 0)
+                return BadRequest(new { Message = "Enter a budgeted or own-fund amount." });
+            if (string.IsNullOrWhiteSpace(dto.Reason))
+                return BadRequest(new { Message = "A reason is required for every fund entry." });
+            if (!await _context.Groups.AnyAsync(g => g.Id == id)) return NotFound();
+
             var fiscalYear = DateTime.UtcNow.Year;
             
             var balance = await _context.FundBalances
@@ -219,7 +260,10 @@ namespace UCP.API.Controllers
             balance.BudgetedBalance += dto.BudgetedAmount;
             balance.OwnFundsBalance += dto.OwnFundsAmount;
             balance.UpdatedDate = DateTime.UtcNow;
+            balance.UpdatedById = _currentUser.GetUserId();
             balance.Version++;
+
+            AddFundAuditEntries(id, balance, dto);
 
             await _context.SaveChangesAsync();
 
@@ -240,11 +284,30 @@ namespace UCP.API.Controllers
             });
         }
 
+        private void AddFundAuditEntries(Guid groupId, FundBalance balance, AddFundsDto dto)
+        {
+            var userId = _currentUser.GetUserId();
+            if (dto.BudgetedAmount != 0)
+                _context.FundTransactions.Add(CreateFundEntry(groupId, "BUDGETED", dto.BudgetedAmount, balance.BudgetedBalance - dto.BudgetedAmount, balance.BudgetedBalance, dto, userId));
+            if (dto.OwnFundsAmount != 0)
+                _context.FundTransactions.Add(CreateFundEntry(groupId, "OWN_FUNDS", dto.OwnFundsAmount, balance.OwnFundsBalance - dto.OwnFundsAmount, balance.OwnFundsBalance, dto, userId));
+        }
+
+        private static FundTransaction CreateFundEntry(Guid groupId, string fundType, decimal amount, decimal previous, decimal current, AddFundsDto dto, Guid? userId) => new()
+        {
+            Id = Guid.NewGuid(), GroupId = groupId, TransactionType = "MANUAL_FUND_ENTRY", FundType = fundType,
+            Amount = amount, PreviousBalance = previous, NewBalance = current, Description = dto.Reason.Trim(),
+            Source = string.IsNullOrWhiteSpace(dto.Source) ? "Manual fund entry" : dto.Source.Trim(),
+            ReferenceType = "MANUAL", CreatedById = userId, CreatedDate = DateTime.UtcNow, UpdatedDate = DateTime.UtcNow,
+            Metadata = dto.AttachmentData == null ? null : System.Text.Json.JsonSerializer.Serialize(new { dto.AttachmentName, dto.AttachmentContentType, dto.AttachmentData })
+        };
+
         // ==========================================
         // POST: api/groups/{id}/disable
         // ==========================================
         [HttpPost("{id}/disable")]
-        [Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize]
+        [RequirePermission("groups.manage")]
         public async Task<IActionResult> Disable(Guid id)
         {
             var group = await _context.Groups.FindAsync(id);
@@ -278,7 +341,8 @@ namespace UCP.API.Controllers
         // POST: api/groups/{id}/reactivate
         // ==========================================
         [HttpPost("{id}/reactivate")]
-        [Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize]
+        [RequirePermission("groups.manage")]
         public async Task<IActionResult> Reactivate(Guid id)
         {
             var group = await _context.Groups.FindAsync(id);
@@ -307,16 +371,16 @@ namespace UCP.API.Controllers
         // PUT: api/groups/{id}
         // ==========================================
         [HttpPut("{id}")]
-        [Authorize(Roles = "SuperAdmin,Admin")]
+        [Authorize]
+        [RequirePermission("groups.manage")]
         public async Task<IActionResult> Update(Guid id, [FromBody] UpdateGroupDto dto)
         {
             var group = await _context.Groups.FindAsync(id);
             if (group == null)
                 return NotFound(new { Message = "Group not found" });
 
-            if (!string.IsNullOrEmpty(dto.GroupType) &&
-                !new[] { "Section", "ChurchGroup", "Committee" }.Contains(dto.GroupType))
-                return BadRequest(new { Message = "Invalid GroupType. Allowed: Section, ChurchGroup, Committee" });
+            if (!string.IsNullOrEmpty(dto.GroupType) && dto.GroupType != "ChurchGroup")
+                return BadRequest(new { Message = "Groups may only use the ChurchGroup type." });
 
             if (!string.IsNullOrEmpty(dto.GroupName) && dto.GroupName != group.GroupName)
             {
@@ -363,7 +427,7 @@ namespace UCP.API.Controllers
         [HttpGet("types")]
         public IActionResult GetTypes()
         {
-            var types = new[] { "Section", "ChurchGroup", "Committee" };
+            var types = new[] { "ChurchGroup" };
             return Ok(types);
         }
 
@@ -376,7 +440,15 @@ namespace UCP.API.Controllers
             if (string.IsNullOrWhiteSpace(q))
                 return Ok(new List<object>());
 
-            var groups = await _context.Groups
+            var query = _context.Groups.AsQueryable();
+            query = query.Where(g => g.GroupType == "ChurchGroup");
+            if (!_groupAccess.HasGlobalAccess())
+            {
+                var accessibleIds = await _groupAccess.GetAccessibleGroupIdsAsync();
+                query = query.Where(g => accessibleIds.Contains(g.Id));
+            }
+
+            var groups = await query
                 .Where(g => g.IsActive && g.GroupName.Contains(q))
                 .OrderBy(g => g.GroupName)
                 .Select(g => new
@@ -417,5 +489,10 @@ namespace UCP.API.Controllers
     {
         public decimal BudgetedAmount { get; set; }
         public decimal OwnFundsAmount { get; set; }
+        public string Reason { get; set; } = string.Empty;
+        public string? Source { get; set; }
+        public string? AttachmentName { get; set; }
+        public string? AttachmentContentType { get; set; }
+        public string? AttachmentData { get; set; }
     }
 }

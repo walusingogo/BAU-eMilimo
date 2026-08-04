@@ -1,7 +1,7 @@
 # ============================================
-# STAGE 1: Build
+# DEVELOPMENT STAGE - With Hot Reload
 # ============================================
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS development
 WORKDIR /src
 
 # Copy solution and project files
@@ -16,32 +16,16 @@ RUN dotnet restore UCP.sln
 # Copy all source code
 COPY . .
 
-# Build the API
-WORKDIR /src/UCP.API
-RUN dotnet build -c Release -o /app/build
+# Install dotnet watch for hot reload
+RUN dotnet tool install -g dotnet-watch
+ENV PATH="${PATH}:/root/.dotnet/tools"
 
-# ============================================
-# STAGE 2: Publish
-# ============================================
-FROM build AS publish
-RUN dotnet publish -c Release -o /app/publish
-
-# ============================================
-# STAGE 3: Runtime
-# ============================================
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
-WORKDIR /app
-
-# Copy published files
-COPY --from=publish /app/publish .
-
-# Ensure wwwroot/uploads exists in the image itself
-RUN mkdir -p /app/wwwroot/uploads
-
-# Set environment variable to use port 5001
-ENV ASPNETCORE_URLS=http://+:5001
-ENV ASPNETCORE_ENVIRONMENT=Production
+# Ensure wwwroot/uploads exists
+RUN mkdir -p /src/UCP.API/wwwroot/uploads
 
 EXPOSE 5001
+ENV ASPNETCORE_ENVIRONMENT=Development
+ENV ASPNETCORE_URLS=http://+:5001
 
-ENTRYPOINT ["dotnet", "UCP.API.dll"]
+# Use dotnet watch for hot reload
+CMD ["dotnet", "watch", "run", "--project", "UCP.API/UCP.API.csproj", "--urls=http://+:5001", "--no-launch-profile"]

@@ -1,3 +1,4 @@
+// backend/UCP.Infrastructure/Data/AppDbContext.cs
 using UCP.Core.Entities.Companions;
 using Microsoft.EntityFrameworkCore;
 using UCP.Core.Entities;
@@ -14,8 +15,22 @@ namespace UCP.Infrastructure.Data
         public DbSet<Requisition> Requisitions { get; set; }
         public DbSet<RequisitionAtm> RequisitionAtms { get; set; }
         public DbSet<RequisitionItem> RequisitionItems { get; set; }
+        public DbSet<ContributionType> ContributionTypes { get; set; }
+        public DbSet<ContributionSource> ContributionSources { get; set; }
+        public DbSet<Contribution> Contributions { get; set; }
+        public DbSet<ContributionAllocation> ContributionAllocations { get; set; }
+        public DbSet<BankAccount> BankAccounts { get; set; }
         public DbSet<FundBalance> FundBalances { get; set; }
         public DbSet<SystemConfig> SystemConfigs { get; set; }
+        public DbSet<FundTransaction> FundTransactions { get; set; }
+        public DbSet<ContributionAtm> ContributionAtms { get; set; }
+        public DbSet<ContributionLck> ContributionLcks { get; set; }
+        public DbSet<UserGroupAssignment> UserGroupAssignments { get; set; }
+        public DbSet<Committee> Committees { get; set; }
+        public DbSet<UserCommitteeAssignment> UserCommitteeAssignments { get; set; }
+        public DbSet<SystemLog> Logs { get; set; }
+        public DbSet<RequisitionLck> RequisitionLcks { get; set; }
+        public DbSet<UserLck> UserLcks { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -27,7 +42,12 @@ namespace UCP.Infrastructure.Data
                 entity.HasIndex(e => e.MembershipId).IsUnique();
                 entity.Property(e => e.Version).IsConcurrencyToken();
 
-                // Self‑referencing relationships (CreatedBy, UpdatedBy)
+                entity.Property(e => e.ProfilePhoto)
+                    .HasColumnName("profile_photo");
+
+                entity.Property(e => e.SignatureData)
+                    .HasColumnName("signature_data");
+
                 entity.HasOne(e => e.CreatedBy)
                     .WithMany()
                     .HasForeignKey(e => e.CreatedById)
@@ -38,7 +58,6 @@ namespace UCP.Infrastructure.Data
                     .HasForeignKey(e => e.UpdatedById)
                     .OnDelete(DeleteBehavior.Restrict);
 
-                // Relationships to Section and Group
                 entity.HasOne(e => e.Section)
                     .WithMany(s => s.Users)
                     .HasForeignKey(e => e.SectionId)
@@ -65,17 +84,48 @@ namespace UCP.Infrastructure.Data
                 entity.HasIndex(e => e.GroupName).IsUnique();
                 entity.Property(e => e.Version).IsConcurrencyToken();
 
-                // Leader relationship (User)
                 entity.HasOne(g => g.Leader)
                     .WithMany()
                     .HasForeignKey(g => g.LeaderId)
                     .OnDelete(DeleteBehavior.SetNull);
 
-                // Parent/Child self‑reference
                 entity.HasOne(g => g.ParentGroup)
                     .WithMany(g => g.ChildGroups)
                     .HasForeignKey(g => g.ParentGroupId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<UserGroupAssignment>(entity =>
+            {
+                entity.HasKey(e => new { e.UserId, e.GroupId });
+                entity.HasOne(e => e.User)
+                    .WithMany(u => u.GroupAssignments)
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(e => e.Group)
+                    .WithMany(g => g.UserAssignments)
+                    .HasForeignKey(e => e.GroupId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<Committee>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.CommitteeName).IsUnique();
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            modelBuilder.Entity<UserCommitteeAssignment>(entity =>
+            {
+                entity.HasKey(e => new { e.UserId, e.CommitteeId });
+                entity.HasOne(e => e.User)
+                    .WithMany(u => u.CommitteeAssignments)
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(e => e.Committee)
+                    .WithMany(c => c.UserAssignments)
+                    .HasForeignKey(e => e.CommitteeId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             // ---------- REQUISITION ----------
@@ -85,11 +135,16 @@ namespace UCP.Infrastructure.Data
                 entity.HasIndex(e => e.RequisitionNumber).IsUnique();
                 entity.HasIndex(e => e.Status);
                 entity.Property(e => e.Version).IsConcurrencyToken();
+                entity.Property(e => e.Version)
+                    .IsRequired()
+                    .HasDefaultValue(1);
 
                 entity.HasOne(r => r.Group)
                     .WithMany(g => g.Requisitions)
                     .HasForeignKey(r => r.GroupId)
                     .OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(r => r.Section).WithMany().HasForeignKey(r => r.SectionId).OnDelete(DeleteBehavior.SetNull);
+                entity.HasOne(r => r.Committee).WithMany().HasForeignKey(r => r.CommitteeId).OnDelete(DeleteBehavior.SetNull);
 
                 entity.HasOne(r => r.Requisitor)
                     .WithMany()
@@ -130,8 +185,6 @@ namespace UCP.Infrastructure.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Version).IsConcurrencyToken();
-
-                // Relationship to Requisition is already configured above
             });
 
             // ---------- FUND BALANCE ----------
@@ -139,10 +192,21 @@ namespace UCP.Infrastructure.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.HasIndex(e => new { e.GroupId, e.FiscalYear }).IsUnique();
+                entity.HasIndex(e => new { e.SectionId, e.FiscalYear }).IsUnique();
+                entity.HasIndex(e => new { e.CommitteeId, e.FiscalYear }).IsUnique();
                 entity.Property(e => e.Version).IsConcurrencyToken();
+                
                 entity.HasOne(e => e.Group)
                     .WithMany()
                     .HasForeignKey(e => e.GroupId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(e => e.Section)
+                    .WithMany()
+                    .HasForeignKey(e => e.SectionId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(e => e.Committee)
+                    .WithMany()
+                    .HasForeignKey(e => e.CommitteeId)
                     .OnDelete(DeleteBehavior.Restrict);
             });
 
@@ -151,6 +215,184 @@ namespace UCP.Infrastructure.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.HasIndex(e => e.ConfigKey).IsUnique();
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            modelBuilder.Entity<SystemLog>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.TimestampUtc);
+                entity.HasIndex(e => new { e.Process, e.TimestampUtc });
+                entity.HasIndex(e => e.UserId);
+                entity.Property(e => e.Details).HasColumnType("text");
+                entity.Property(e => e.Exception).HasColumnType("text");
+            });
+
+            // ---------- CONTRIBUTION ----------
+            modelBuilder.Entity<Contribution>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.ContributionNumber).IsUnique();
+                entity.HasIndex(e => e.Status);
+                entity.HasIndex(e => e.ContributionDate);
+                entity.Property(e => e.Version).IsConcurrencyToken();
+
+                entity.HasOne(c => c.ContributionType)
+                    .WithMany(ct => ct.Contributions)
+                    .HasForeignKey(c => c.ContributionTypeId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(c => c.Source)
+                    .WithMany(cs => cs.Contributions)
+                    .HasForeignKey(c => c.SourceId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(c => c.ReceivedByUser)
+                    .WithMany()
+                    .HasForeignKey(c => c.ReceivedBy)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(c => c.ConfirmedByUser)
+                    .WithMany()
+                    .HasForeignKey(c => c.ConfirmedBy)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(c => c.CreatedByUser)
+                    .WithMany()
+                    .HasForeignKey(c => c.CreatedById)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(c => c.UpdatedByUser)
+                    .WithMany()
+                    .HasForeignKey(c => c.UpdatedById)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasMany(c => c.Allocations)
+                    .WithOne(a => a.Contribution)
+                    .HasForeignKey(a => a.ContributionId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ---------- CONTRIBUTION ALLOCATION ----------
+            modelBuilder.Entity<ContributionAllocation>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.ContributionId);
+                entity.HasIndex(e => e.GroupId);
+                entity.HasIndex(e => e.SectionId);
+                entity.HasIndex(e => e.CommitteeId);
+                entity.Property(e => e.Version).IsConcurrencyToken();
+
+                entity.HasOne(a => a.Contribution)
+                    .WithMany(c => c.Allocations)
+                    .HasForeignKey(a => a.ContributionId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(a => a.Group)
+                    .WithMany()
+                    .HasForeignKey(a => a.GroupId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(a => a.Section).WithMany().HasForeignKey(a => a.SectionId).OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(a => a.Committee).WithMany().HasForeignKey(a => a.CommitteeId).OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(a => a.CreatedByUser)
+                    .WithMany()
+                    .HasForeignKey(a => a.CreatedById)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ---------- CONTRIBUTION TYPE ----------
+            modelBuilder.Entity<ContributionType>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.Code).IsUnique();
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            // ---------- CONTRIBUTION SOURCE ----------
+            modelBuilder.Entity<ContributionSource>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            // ---------- BANK ACCOUNT ----------
+            modelBuilder.Entity<BankAccount>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.AccountNumber);
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            // ---------- FUND TRANSACTION ----------
+            modelBuilder.Entity<FundTransaction>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.GroupId);
+                entity.HasIndex(e => e.SectionId);
+                entity.HasIndex(e => e.CommitteeId);
+                entity.HasIndex(e => e.CreatedDate);
+                entity.Property(e => e.Version).IsConcurrencyToken();
+
+                entity.HasOne(t => t.Group)
+                    .WithMany()
+                    .HasForeignKey(t => t.GroupId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(t => t.Section).WithMany().HasForeignKey(t => t.SectionId).OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(t => t.Committee).WithMany().HasForeignKey(t => t.CommitteeId).OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(t => t.CreatedByUser)
+                    .WithMany()
+                    .HasForeignKey(t => t.CreatedById)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(t => t.UpdatedByUser)
+                    .WithMany()
+                    .HasForeignKey(t => t.UpdatedById)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ---------- CONTRIBUTION ATTACHMENT (ATM) ----------
+            modelBuilder.Entity<ContributionAtm>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.EntityId);
+                entity.Property(e => e.Version).IsConcurrencyToken();
+
+                entity.HasOne(a => a.Contribution)
+                    .WithMany(c => c.Attachments)
+                    .HasForeignKey(a => a.EntityId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ---------- CONTRIBUTION LOCK (LCK) ----------
+            modelBuilder.Entity<ContributionLck>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.EntityId).IsUnique();
+                entity.Property(e => e.Version).IsConcurrencyToken();
+
+                entity.HasOne(l => l.Contribution)
+                    .WithMany(c => c.Locks)
+                    .HasForeignKey(l => l.EntityId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ===== NEW: REQUISITION LOCK =====
+            // No .ToTable() – let EF Core use default naming (requisition_lcks)
+            modelBuilder.Entity<RequisitionLck>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.EntityId).IsUnique();
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            // ===== NEW: USER LOCK =====
+            // No .ToTable() – let EF Core use default naming (user_lcks)
+            modelBuilder.Entity<UserLck>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.EntityId).IsUnique();
                 entity.Property(e => e.Version).IsConcurrencyToken();
             });
         }

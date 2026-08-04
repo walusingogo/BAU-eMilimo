@@ -1,0 +1,541 @@
+> using Microsoft.EntityFrameworkCore;
+using UCP.Core.DTOs;
+using UCP.Core.Entities;
+using UCP.Core.Enums;
+using UCP.Core.Services;
+using UCP.Core.Utils;
+using UCP.Infrastructure.Data;
+
+namespace UCP.API.Services
+{
+    public class RequisitionService : IRequisitionService
+    {
+        private readonly AppDbContext _context;
+
+        public RequisitionService(AppDbContext context)
+        {
+            _context = context;
+        }
+
+        public async Task<RequisitionStatsDto> GetStatsAsync(Guid userId)
+        {
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
+                return new RequisitionStatsDto();
+
+            var query = _context.Requisitions.AsQueryable();
+
+            // SuperAdmin and Admin see all; others see only their own
+            if (user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
+                query = query.Where(r => r.RequisitorId == userId);
+
+            var all = await query.ToListAsync();
+
+            var stats = new RequisitionStatsDto
+            {
+                Total = all.Count,
+                Draft = all.Count(r => r.Status == RequisitionStatus.DRAFT.ToString()),
+                Pending = all.Count(r => r.Status == RequisitionStatus.SENIOR_REPS_PENDING.ToString() ||
+                                        r.Status == RequisitionStatus.CHURCH_AUTH_PENDING.ToString() ||
+                                        r.Status == RequisitionStatus.MINISTER_PENDING.ToString()),
+                Approved = all.Count(r => r.Status == RequisitionStatus.APPROVED.ToString()),
+                Rejected = all.Count(r => r.Status == RequisitionStatus.REJECTED.ToString()),
+                MoneyReady = all.Count(r => r.Status == RequisitionStatus.MONEY_READY.ToString()),
+                Collected = all.Count(r => r.Status == RequisitionStatus.COLLECTED.ToString()),
+                Completed = all.Count(r => r.Status == RequisitionStatus.COMPLETED.ToString()),
+                Archived = all.Count(r => r.IsArchived),
+                TotalAmount = all.Sum(r => r.Amount),
+                PendingAmount = all.Where(r => r.Status == RequisitionStatus.SENIOR_REPS_PENDING.ToString() ||
+                                                r.Status == RequisitionStatus.CHURCH_AUTH_PENDING.ToString() ||
+                                                r.Status == RequisitionStatus.MINISTER_PENDING.ToString())
+                                .Sum(r => r.Amount),
+                ApprovedAmount = all.Where(r => r.Status == RequisitionStatus.APPROVED.ToString() ||
+                                                r.Status == RequisitionStatus.MONEY_READY.ToString() ||
+                                                r.Status == RequisitionStatus.COLLECTED.ToString() ||
+                                                r.Status == RequisitionStatus.COMPLETED.ToString())
+                                .Sum(r => r.Amount)
+            };
+
+            return stats;
+        }
+
+        // ---------- Helper ----------
+        private async Task<FundBalance?> GetCurrentBalance(Guid groupId)
+        {
+            var fiscalYear = DateTime.UtcNow.Year;
+            return await _context.FundBalances
+                .FirstOrDefaultAsync(fb => fb.GroupId == groupId && fb.FiscalYear == fiscalYear);
+        }
+
+        // ---------- Helper: Get Available Balance ----------
+        private async Task<(decimal availableBudgeted, decimal availableOwnFunds)> GetAvailableBalanceAsync(Guid groupId)
+        {
+            var balance = await GetCurrentBalance(groupId);
+            if (balance == null)
+                return (0, 0);
+
+            var availableBudgeted = balance.BudgetedBalance - balance.CommittedBudgetedBalance;
+            var availableOwnFunds = balance.OwnFundsBalance - balance.CommittedOwnFundsBalance;
+            return (availableBudgeted, availableOwnFunds);
+        }
+
+        // ---------- Create ----------
+        public async Task<Requisition> CreateRequisitionAsync(CreateRequisitionDto dto, Guid userId)
+        {
+            if (dto.Items == null || !dto.Items.Any())
+                throw new InvalidOperationException("A requisition must contain at least one item.");
+
+            // ----- Check user existence -----
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
+                throw new UnauthorizedAccessException("User not found. Please log in again.");
+
+            var group = await _context.Groups.FindAsync(dto.GroupId);
+            if (group == null)
+                throw new KeyNotFoundException("Group not found.");
+
+            var amount = dto.Items.Sum(item => item.UnitPrice * item.Quantity);
+
+            // ----- Validate against available balance -----
+            var (availableBudgeted, availableOwnFunds) = await GetAvailableBalanceAsync(dto.GroupId);
+            if (dto.FundSource == FundSource.Budgeted && amount > availableBudgeted)
+                throw new InvalidOperationException($"Insufficient budget balance. Available: {availableBudgeted}, Requested: {amount}");
+            else if (dto.FundSource == FundSource.OwnFunds && amount > availableOwnFunds)
+                throw new InvalidOperationException($"Insufficient own funds balance. Available: {availableOwnFunds}, Requested: {amount}");
+
+            var requisition = new Requisition
+            {
+                Id = Guid.NewGuid(),
+                RequisitionNumber = $"REQ-{DateTime.UtcNow:yyyyMMddHHmmssfff}",
+                GroupId = dto.GroupId,
+                RequisitorId = userId,
+                Payee = dto.Payee,
+                PaymentMethod = dto.PaymentMethod.ToString(),
+                FundSource = dto.FundSource.ToString(),
+                Amount = amount,
+                AmountWords = NumberToWords.Convert(amount),
+                PaymentDetails = dto.PaymentDetails,
+                Status = RequisitionStatus.DRAFT.ToString(),
+                CreatedDate = DateTime.UtcNow,
+                UpdatedDate = DateTime.UtcNow,
+                Version = 1,
+                Items = dto.Items.Select(item => new RequisitionItem
+                {
+                    Id = Guid.NewGuid(),
+                    Description = item.Description,
+                    Quantity = item.Quantity,
+                    UnitPrice = item.UnitPrice,
+                    Total = item.UnitPrice * item.Quantity,
+                    CreatedDate = DateTime.UtcNow,
+                    UpdatedDate = DateTime.UtcNow,
+                    Version = 1
+                }).ToList()
+            };
+
+            _context.Requisitions.Add(requisition);
+            await _context.SaveChangesAsync();
+            return requisition;
+        }
+
+        // ---------- Get by ID ----------
+        public async Task<Requisition> GetRequisitionAsync(Guid id, Guid userId)
+        {
+            var requisition = await _context.Requisitions
+                .Include(r => r.Items)
+                .Include(r => r.Group)
+                .Include(r => r.Requisitor)
+                .FirstOrDefaultAsync(r => r.Id == id);
+
+            if (requisition == null)
+                throw new KeyNotFoundException("Requisition not found.");
+
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
+                throw new UnauthorizedAccessException("User not found.");
+
+            // SuperAdmin and Admin can view any requisition
+            if (user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
+            {
+                if (requisition.RequisitorId != userId)
+                    throw new UnauthorizedAccessException("Access denied.");
+            }
+
+            return requisition;
+        }
+
+        // ---------- List ----------
+        public async Task<IEnumerable<Requisition>> GetRequisitionsAsync(RequisitionFilterDto filter, Guid userId)
+        {
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
+                return Enumerable.Empty<Requisition>();
+
+            var query = _context.Requisitions
+                .Include(r => r.Items)
+                .Include(r => r.Group)
+                .Include(r => r.Requisitor)
+                .AsQueryable();
+
+            // SuperAdmin and Admin see all; others see only their own
+            if (user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
+                query = query.Where(r => r.RequisitorId == userId);
+
+            // Apply filters
+            if (!string.IsNullOrWhiteSpace(filter.Status))
+                query = query.Where(r => r.Status == filter.Status);
+
+            if (filter.GroupId.HasValue)
+                query = query.Where(r => r.GroupId == filter.GroupId.Value);
+
+            if (filter.FromDate.HasValue)
+                query = query.Where(r => r.CreatedDate >= filter.FromDate.Value);
+
+            if (filter.ToDate.HasValue)
+                query = query.Where(r => r.CreatedDate <= filter.ToDate.Value);
+
+            return await query.ToListAsync();
+        }
+
+        // ---------- Update (Concurrency handled by EF Core) ----------
+        public async Task<Requisition> UpdateRequisitionAsync(Guid id, UpdateRequisitionDto dto, Guid userId)
+        {
+            // Load the requisition with items
+            var requisition = await _context.Requisitions
+                .Include(r => r.Items)
+                .FirstOrDefaultAsync(r => r.Id == id && !r.IsArchived);
+
+            if (requisition == null)
+                throw new KeyNotFoundException($"Requisition with ID {id} not found");
+
+            // Check authorization
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
+                throw new UnauthorizedAccessException("User not found");
+
+            bool isRequisitor = requisition.RequisitorId == userId;
+            bool isAdmin = user.Role == UserRole.SuperAdmin.ToString() || user.Role == UserRole.Admin.ToString();
+            if (!isRequisitor && !isAdmin)
+            {
+                throw new UnauthorizedAccessException("You are not authorized to update this requisition. Only the requisitor or an admin can edit it.");
+            }
+
+            // Check status
+            if (requisition.Status != RequisitionStatus.DRAFT.ToString())
+                throw new InvalidOperationException("Only draft requisitions can be updated");
+
+            // Update fields
+            if (!string.IsNullOrWhiteSpace(dto.Payee))
+                requisition.Payee = dto.Payee;
+
+            if (dto.PaymentMethod.HasValue)
+                requisition.PaymentMethod = dto.PaymentMethod.Value.ToString();
+
+            if (!string.IsNullOrWhiteSpace(dto.PaymentDetails))
+                requisition.PaymentDetails = dto.PaymentDetails;
+
+            if (dto.Amount.HasValue)
+                requisition.Amount = dto.Amount.Value;
+
+            // Update items
+            if (dto.Items != null && dto.Items.Any())
+            {
+                // Remove existing items
+                if (requisition.Items != null && requisition.Items.Any())
+                {
+                    _context.RequisitionItems.RemoveRange(requisition.Items);
+                }
+
+                // Add new items
+                var newItems = dto.Items.Select(item => new RequisitionItem
+                {
+                    Id = Guid.NewGuid(),
+                    RequisitionId = requisition.Id,
+                    Description = item.Description,
+                    Quantity = item.Quantity,
+                    UnitPrice = item.UnitPrice,
+                    Total = item.Quantity * item.UnitPrice,
+                    CreatedDate = DateTime.UtcNow,
+                    UpdatedDate = DateTime.UtcNow,
+                    Version = 1
+                }).ToList();
+
+                requisition.Items = newItems;
+
+                // Recalculate total
+                requisition.Amount = newItems.Sum(i => i.Total);
+                requisition.AmountWords = NumberToWords.Convert(requisition.Amount);
+            }
+
+            // Increment version for concurrency
+            requisition.Version++;
+            requisition.UpdatedDate = DateTime.UtcNow;
+            requisition.UpdatedById = userId;
+
+            try
+            {
+                _context.Requisitions.Update(requisition);
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                // Reload the entity to get the current version from the database
+                await _context.Entry(requisition).ReloadAsync();
+                throw new DbUpdateConcurrencyException(
+                    $"This requisition has been modified by another user. Current version: {requisition.Version}",
+                    ex
+                );
+            }
+
+            // Reload with items to return the updated entity
+            return await _context.Requisitions
+                .Include(r => r.Items)
+                .FirstOrDefaultAsync(r => r.Id == id) ?? requisition;
+        }
+
+        // ---------- Submit (commit the amount) ----------
+        public async Task<Requisition> SubmitRequisitionAsync(Guid id, Guid userId)
+        {
+            var requisition = await LoadOwnedRequisitionAsync(id, userId);
+
+            if (requisition.Status != RequisitionStatus.DRAFT.ToString())
+                throw new InvalidOperationException("Only draft requisitions may be submitted.");
+
+            // ----- Commit the amount -----
+            var balance = await GetCurrentBalance(requisition.GroupId!.Value);
+            if (balance == null)
+                throw new InvalidOperationException("No fund balance found for this group.");
+
+            var fundSource = Enum.Parse<FundSource>(requisition.FundSource);
+            if (fundSource == FundSource.Budgeted)
+            {
+                var availableBudgeted = balance.BudgetedBalance - balance.CommittedBudgetedBalance;
+                if (requisition.Amount > availableBudgeted)
+                    throw new InvalidOperationException($"Insufficient budget balance. Available: {availableBudgeted}, Requested: {requisition.Amount}");
+                balance.CommittedBudgetedBalance += requisition.Amount;
+            }
+            else if (fundSource == FundSource.OwnFunds)
+            {
+                var availableOwnFunds = balance.OwnFundsBalance - balance.CommittedOwnFundsBalance;
+                if (requisition.Amount > availableOwnFunds)
+                    throw new InvalidOperationException($"Insufficient own funds balance. Available: {availableOwnFunds}, Requested: {requisition.Amount}");
+                balance.CommittedOwnFundsBalance += requisition.Amount;
+            }
+
+            balance.UpdatedDate = DateTime.UtcNow;
+            balance.Version++;
+            _context.FundBalances.Update(balance);
+
+            requisition.Status = RequisitionStatus.SENIOR_REPS_PENDING.ToString();
+            requisition.UpdatedDate = DateTime.UtcNow;
+            requisition.Version++;
+            await _context.SaveChangesAsync();
+            return requisition;
+        }
+
+        // ---------- Approve (deduct actual, release committed) ----------
+        public async Task<Requisition> ApproveRequisitionAsync(Guid id, ApproveRequisitionDto dto, Guid userId)
+        {
+            var requisition = await LoadRequisitionAsync(id);
+
+            if (requisition.Status == RequisitionStatus.REJECTED.ToString() || requisition.Status == RequisitionStatus.ARCHIVED.ToString())
+                throw new InvalidOperationException("Cannot approve a requisition in its current state.");
+
+            var balance = await GetCurrentBalance(requisition.GroupId!.Value);
+            if (balance == null)
+                throw new InvalidOperationException("No fund balance found for this group.");
+
+            var fundSource = Enum.Parse<FundSource>(requisition.FundSource);
+
+            // ----- Deduct actual and release commitment -----
+            if (fundSource == FundSource.Budgeted)
+            {
+                if (requisition.Amount > balance.BudgetedBalance)
+                    throw new InvalidOperationException($"Insufficient budget balance. Available: {balance.BudgetedBalance}, Requested: {requisition.Amount}");
+                balance.BudgetedBalance -= requisition.Amount;
+                balance.CommittedBudgetedBalance -= requisition.Amount;
+            }
+            else if (fundSource == FundSource.OwnFunds)
+            {
+                if (requisition.Amount > balance.OwnFundsBalance)
+                    throw new InvalidOperationException($"Insufficient own funds balance. Available: {balance.OwnFundsBalance}, Requested: {requisition.Amount}");
+                balance.OwnFundsBalance -= requisition.Amount;
+                balance.CommittedOwnFundsBalance -= requisition.Amount;
+            }
+
+            balance.UpdatedDate = DateTime.UtcNow;
+            balance.Version++;
+            _context.FundBalances.Update(balance);
+
+            requisition.Status = RequisitionStatus.APPROVED.ToString();
+            requisition.ApprovedById = userId;
+            requisition.ApprovedAt = DateTime.UtcNow;
+            requisition.UpdatedDate = DateTime.UtcNow;
+            requisition.Version++;
+            await _context.SaveChangesAsync();
+            return requisition;
+        }
+
+        // ---------- Reject (release committed) ----------
+        public async Task<Requisition> RejectRequisitionAsync(Guid id, RejectRequisitionDto dto, Guid userId)
+        {
+            var requisition = await LoadRequisitionAsync(id);
+
+            if (requisition.Status == RequisitionStatus.ARCHIVED.ToString())
+                throw new InvalidOperationException("Cannot reject an archived requisition.");
+
+            // ----- Release commitment -----
+            var balance = await GetCurrentBalance(requisition.GroupId!.Value);
+            if (balance != null)
+            {
+                var fundSource = Enum.Parse<FundSource>(requisition.FundSource);
+                if (fundSource == FundSource.Budgeted)
+                    balance.CommittedBudgetedBalance -= requisition.Amount;
+                else if (fundSource == FundSource.OwnFunds)
+                    balance.CommittedOwnFundsBalance -= requisition.Amount;
+
+                balance.UpdatedDate = DateTime.UtcNow;
+                balance.Version++;
+                _context.FundBalances.Update(balance);
+            }
+
+            requisition.Status = RequisitionStatus.REJECTED.ToString();
+            requisition.RejectionReason = dto.Reason;
+            requisition.UpdatedDate = DateTime.UtcNow;
+            requisition.Version++;
+            await _context.SaveChangesAsync();
+            return requisition;
+        }
+
+        // ---------- Mark Money Ready ----------
+        public async Task<Requisition> MarkMoneyReadyAsync(Guid id, Guid userId)
+        {
+            var requisition = await LoadRequisitionAsync(id);
+
+            if (requisition.Status != RequisitionStatus.APPROVED.ToString())
+                throw new InvalidOperationException("Only approved requisitions can be marked as money ready.");
+
+            requisition.Status = RequisitionStatus.MONEY_READY.ToString();
+            requisition.MoneyReadyAt = DateTime.UtcNow;
+            requisition.UpdatedDate = DateTime.UtcNow;
+            requisition.Version++;
+            await _context.SaveChangesAsync();
+            return requisition;
+        }
+
+        // ---------- Collect ----------
+        public async Task<Requisition> CollectRequisitionAsync(Guid id, CollectRequisitionDto dto, Guid userId)
+        {
+            var requisition = await LoadRequisitionAsync(id);
+
+            if (requisition.Status != RequisitionStatus.MONEY_READY.ToString())
+                throw new InvalidOperationException("Only money-ready requisitions can be collected.");
+
+            requisition.Status = RequisitionStatus.COLLECTED.ToString();
+            requisition.CollectedById = userId;
+            requisition.CollectionSignature = dto.SignatureData;
+            requisition.CollectedAt = DateTime.UtcNow;
+            requisition.UpdatedDate = DateTime.UtcNow;
+            requisition.Version++;
+            await _context.SaveChangesAsync();
+            return requisition;
+        }
+
+        // ---------- Archive (release commitment if pending) ----------
+        public async Task ArchiveRequisitionAsync(Guid id, ArchiveRequisitionDto dto, Guid userId)
+        {
+            var requisition = await LoadRequisitionAsync(id);
+
+            if (requisition.Status == RequisitionStatus.ARCHIVED.ToString())
+                throw new InvalidOperationException("Requisition is already archived.");
+
+            // ----- If pending, release commitment -----
+            var pendingStatuses = new[] { RequisitionStatus.SENIOR_REPS_PENDING.ToString(), RequisitionStatus.CHURCH_AUTH_PENDING.ToString(), RequisitionStatus.MINISTER_PENDING.ToString() };
+            if (pendingStatuses.Contains(requisition.Status))
+            {
+                var balance = await GetCurrentBalance(requisition.GroupId!.Value);
+                if (balance != null)
+                {
+                    var fundSource = Enum.Parse<FundSource>(requisition.FundSource);
+                    if (fundSource == FundSource.Budgeted)
+                        balance.CommittedBudgetedBalance -= requisition.Amount;
+                    else if (fundSource == FundSource.OwnFunds)
+                        balance.CommittedOwnFundsBalance -= requisition.Amount;
+
+                    balance.UpdatedDate = DateTime.UtcNow;
+                    balance.Version++;
+                    _context.FundBalances.Update(balance);
+                }
+            }
+
+            requisition.Status = RequisitionStatus.ARCHIVED.ToString();
+            requisition.IsArchived = true;
+            requisition.ArchivedById = userId;
+            requisition.ArchivedAt = DateTime.UtcNow;
+            requisition.ArchiveReason = dto.Reason;
+            requisition.UpdatedDate = DateTime.UtcNow;
+            requisition.Version++;
+            await _context.SaveChangesAsync();
+        }
+
+        // ---------- Utility ----------
+        public async Task<bool> CanUserApproveAsync(Guid requisitionId, Guid userId)
+        {
+            var requisition = await _context.Requisitions.FindAsync(requisitionId);
+            if (requisition == null)
+                return false;
+
+            return requisition.Status != RequisitionStatus.ARCHIVED.ToString() && requisition.Status != RequisitionStatus.REJECTED.ToString();
+        }
+
+        public Task<RequisitionStatus> GetNextStatusAsync(Guid requisitionId)
+        {
+            var requisition = _context.Requisitions.Find(requisitionId);
+            if (requisition == null)
+                throw new KeyNotFoundException("Requisition not found.");
+
+            var currentStatus = Enum.TryParse<RequisitionStatus>(requisition.Status, true, out var status)
+                ? status
+                : RequisitionStatus.DRAFT;
+
+            return Task.FromResult(currentStatus switch
+            {
+                RequisitionStatus.DRAFT => RequisitionStatus.SENIOR_REPS_PENDING,
+                RequisitionStatus.SENIOR_REPS_PENDING => RequisitionStatus.CHURCH_AUTH_PENDING,
+                RequisitionStatus.CHURCH_AUTH_PENDING => RequisitionStatus.MINISTER_PENDING,
+                RequisitionStatus.MINISTER_PENDING => RequisitionStatus.APPROVED,
+                RequisitionStatus.APPROVED => RequisitionStatus.MONEY_READY,
+                RequisitionStatus.MONEY_READY => RequisitionStatus.COLLECTED,
+                RequisitionStatus.COLLECTED => RequisitionStatus.COMPLETED,
+                _ => currentStatus
+            });
+        }
+
+        // ---------- Private loaders ----------
+        private async Task<Requisition> LoadOwnedRequisitionAsync(Guid id, Guid userId)
+        {
+            var requisition = await _context.Requisitions
+                .Include(r => r.Items)
+                .FirstOrDefaultAsync(r => r.Id == id && !r.IsArchived);
+
+            if (requisition == null)
+                throw new KeyNotFoundException("Requisition not found.");
+
+            if (requisition.RequisitorId != userId)
+                throw new UnauthorizedAccessException("Access denied.");
+
+            return requisition;
+        }
+
+        private async Task<Requisition> LoadRequisitionAsync(Guid id)
+        {
+            var requisition = await _context.Requisitions
+                .Include(r => r.Items)
+                .FirstOrDefaultAsync(r => r.Id == id && !r.IsArchived);
+
+            if (requisition == null)
+                throw new KeyNotFoundException("Requisition not found.");
+
+            return requisition;
+        }
+    }
+}

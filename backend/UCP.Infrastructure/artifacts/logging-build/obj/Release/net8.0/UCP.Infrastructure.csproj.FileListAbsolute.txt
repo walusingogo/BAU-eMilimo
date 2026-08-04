@@ -1,0 +1,16 @@
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\bin\Release\net8.0\UCP.Infrastructure.deps.json
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\bin\Release\net8.0\UCP.Infrastructure.runtimeconfig.json
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\bin\Release\net8.0\UCP.Infrastructure.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\bin\Release\net8.0\UCP.Infrastructure.pdb
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\bin\Release\net8.0\UCP.Core.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\bin\Release\net8.0\UCP.Core.pdb
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\UCP.Infrastructure.csproj.AssemblyReference.cache
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\UCP.Infrastructure.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\UCP.Infrastructure.csproj.CoreCompileInputs.cache
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\UCP.Infrastructure.sourcelink.json
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\UCP.Infr.724D9853.Up2Date
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\UCP.Infrastructure.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\refint\UCP.Infrastructure.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\UCP.Infrastructure.pdb
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\UCP.Infrastructure.genruntimeconfig.cache
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\artifacts\logging-build\obj\Release\net8.0\ref\UCP.Infrastructure.dll

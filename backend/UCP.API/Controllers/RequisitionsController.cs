@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using UCP.API.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -8,6 +9,7 @@ using UCP.Core.Enums;
 using UCP.Core.Services;
 using UCP.Infrastructure.Data;
 using UCP.Core.Entities.Companions;
+using UCP.Core.Entities;
 
 namespace UCP.API.Controllers
 {
@@ -60,103 +62,25 @@ namespace UCP.API.Controllers
             }
         }
 
-        // ============== POST: Create with files ==============
-        [HttpPost("with-files")]
-        [Consumes("multipart/form-data")]
-        public async Task<IActionResult> CreateRequisitionWithFiles([FromForm] CreateRequisitionWithFilesDto dto)
-        {
-            try
-            {
-                var requisitionDto = new CreateRequisitionDto
-                {
-                    GroupId = dto.GroupId,
-                    Payee = dto.Payee,
-                    PaymentMethod = dto.PaymentMethod,
-                    FundSource = dto.FundSource,
-                    PaymentDetails = dto.PaymentDetails,
-                    Items = dto.Items
-                };
-
-                var userId = GetUserId();
-                var requisition = await _requisitionService.CreateRequisitionAsync(requisitionDto, userId);
-
-                if (dto.Files != null && dto.Files.Any())
-                {
-                    var uploadsFolder = Path.Combine(_env.WebRootPath ?? "wwwroot", "uploads", "requisitions", requisition.Id.ToString());
-                    Directory.CreateDirectory(uploadsFolder);
-
-                    var allowedTypes = new[] { "application/pdf", "image/jpeg", "image/jpg", "image/png" };
-                    foreach (var file in dto.Files)
-                    {
-                        if (!allowedTypes.Contains(file.ContentType))
-                            continue;
-
-                        var fileName = $"{Guid.NewGuid()}_{file.FileName}";
-                        var filePath = Path.Combine(uploadsFolder, fileName);
-
-                        using (var stream = new FileStream(filePath, FileMode.Create))
-                        {
-                            await file.CopyToAsync(stream);
-                        }
-
-                        var attachment = new RequisitionAtm
-                        {
-                            Id = Guid.NewGuid(),
-                            EntityId = requisition.Id,
-                            FileName = file.FileName,
-                            FilePath = $"/uploads/requisitions/{requisition.Id}/{fileName}",
-                            MimeType = file.ContentType,
-                            Size = file.Length,
-                            UploadedById = userId,
-                            UploadedAt = DateTime.UtcNow,
-                            Description = "Requisition attachment",
-                            CreatedDate = DateTime.UtcNow,
-                            UpdatedDate = DateTime.UtcNow,
-                            LastProcessedTimeStamp = DateTime.UtcNow,
-                            Version = 1
-                        };
-                        _context.RequisitionAtms.Add(attachment);
-                    }
-                    await _context.SaveChangesAsync();
-                }
-
-                return CreatedAtAction(nameof(GetRequisition), new { id = requisition.Id }, new
-                {
-                    requisition.Id,
-                    requisition.RequisitionNumber,
-                    requisition.Status,
-                    requisition.Amount
-                });
-            }
-            catch (InvalidOperationException ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
-            catch (Exception)
-            {
-                return StatusCode(500, new { message = "An unexpected error occurred." });
-            }
-        }
-        // ============== Standard CRUD ==============
-
+        // ============== CREATE ==============
         [HttpPost]
-        public async Task<IActionResult> CreateRequisition([FromBody] CreateRequisitionDto dto)
+        [Consumes("multipart/form-data")]
+        [RequirePermission("requisitions.initiate")]
+        public async Task<IActionResult> CreateRequisition([FromForm] CreateRequisitionDto dto)
         {
             try
             {
                 var userId = GetUserId();
                 var requisition = await _requisitionService.CreateRequisitionAsync(dto, userId);
+
                 return CreatedAtAction(nameof(GetRequisition), new { id = requisition.Id }, new
                 {
                     requisition.Id,
                     requisition.RequisitionNumber,
                     requisition.Status,
-                    requisition.Amount
+                    requisition.Amount,
+                    requisition.Version
                 });
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                return Unauthorized(new { message = ex.Message });
             }
             catch (InvalidOperationException ex)
             {
@@ -166,26 +90,41 @@ namespace UCP.API.Controllers
             {
                 return NotFound(new { message = ex.Message });
             }
-            catch (Exception)
+            catch (UnauthorizedAccessException ex)
             {
-                return StatusCode(500, new { message = "An unexpected error occurred." });
+                return Unauthorized(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "An unexpected error occurred.", details = ex.Message });
             }
         }
 
+        // ============== GET: By ID ==============
         [HttpGet("{id}")]
+        [RequirePermission("requisitions.view")]
         public async Task<IActionResult> GetRequisition(Guid id)
         {
             try
             {
                 var userId = GetUserId();
                 var requisition = await _requisitionService.GetRequisitionAsync(id, userId);
+                var signerIds = new[] { requisition.RequisitorId, requisition.FirstSeniorApproverId, requisition.SecondSeniorApproverId, requisition.ApprovedById, requisition.MoneyReadyById, requisition.CollectedById }.Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+                var signers = await _context.Users.Where(u => signerIds.Contains(u.Id)).Select(u => new { u.Id, u.FirstName, u.LastName, u.Role, u.SignatureData }).ToListAsync();
 
                 return Ok(new
                 {
                     requisition.Id,
                     requisition.RequisitionNumber,
                     requisition.GroupId,
+                    requisition.SectionId,
+                    requisition.CommitteeId,
                     requisition.RequisitorId,
+                    requisition.FirstSeniorApproverId,
+                    requisition.SecondSeniorApproverId,
+                    requisition.ApprovedById,
+                    requisition.MoneyReadyById,
+                    requisition.CollectedById,
                     requisition.Payee,
                     requisition.PaymentMethod,
                     requisition.FundSource,
@@ -201,6 +140,7 @@ namespace UCP.API.Controllers
                     requisition.IsArchived,
                     requisition.CreatedDate,
                     requisition.UpdatedDate,
+                    requisition.Version,
                     Items = requisition.Items?.Select(i => new
                     {
                         i.Id,
@@ -210,6 +150,9 @@ namespace UCP.API.Controllers
                         i.Total
                     }),
                     Group = requisition.Group != null ? new { requisition.Group.Id, requisition.Group.GroupName } : null,
+                    Section = requisition.Section != null ? new { requisition.Section.Id, requisition.Section.SectionName } : null,
+                    Committee = requisition.Committee != null ? new { requisition.Committee.Id, requisition.Committee.CommitteeName } : null,
+                    Signers = signers,
                     Requisitor = requisition.Requisitor != null ? new
                     {
                         requisition.Requisitor.Id,
@@ -229,7 +172,9 @@ namespace UCP.API.Controllers
             }
         }
 
+        // ============== GET: List ==============
         [HttpGet]
+        [RequirePermission("requisitions.view")]
         public async Task<IActionResult> GetRequisitions([FromQuery] RequisitionFilterDto filter)
         {
             try
@@ -246,6 +191,7 @@ namespace UCP.API.Controllers
                     r.Status,
                     r.CreatedDate,
                     r.UpdatedDate,
+                    r.Version,
                     Items = r.Items?.Select(i => new
                     {
                         i.Id,
@@ -255,6 +201,8 @@ namespace UCP.API.Controllers
                         i.Total
                     }),
                     Group = r.Group != null ? new { r.Group.Id, r.Group.GroupName } : null,
+                    Section = r.Section != null ? new { r.Section.Id, Name = r.Section.SectionName } : null,
+                    Committee = r.Committee != null ? new { r.Committee.Id, Name = r.Committee.CommitteeName } : null,
                     Requisitor = r.Requisitor != null ? new
                     {
                         r.Requisitor.Id,
@@ -269,13 +217,21 @@ namespace UCP.API.Controllers
             }
         }
 
+        // ============== UPDATE ==============
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateRequisition(Guid id, [FromBody] UpdateRequisitionDto dto)
+        [RequirePermission("requisitions.initiate")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UpdateRequisition(Guid id, [FromForm] UpdateRequisitionDto dto)
         {
             try
             {
                 var userId = GetUserId();
                 var requisition = await _requisitionService.UpdateRequisitionAsync(id, dto, userId);
+
+                if (dto.Files != null && dto.Files.Any())
+                {
+                    await SaveAttachments(id, dto.Files, userId);
+                }
 
                 return Ok(new
                 {
@@ -283,7 +239,18 @@ namespace UCP.API.Controllers
                     requisition.RequisitionNumber,
                     requisition.Status,
                     requisition.Amount,
-                    requisition.UpdatedDate
+                    requisition.UpdatedDate,
+                    requisition.Version,
+                    Message = "Requisition updated successfully"
+                });
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                var currentRequisition = await _context.Requisitions.FindAsync(id);
+                return Conflict(new
+                {
+                    Message = "controller: " + ex.Message,
+                    CurrentVersion = currentRequisition?.Version ?? 0
                 });
             }
             catch (KeyNotFoundException ex)
@@ -298,9 +265,15 @@ namespace UCP.API.Controllers
             {
                 return BadRequest(new { Message = ex.Message });
             }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = "An unexpected error occurred.", Details = ex.Message });
+            }
         }
 
+        // ============== SUBMIT ==============
         [HttpPost("{id}/submit")]
+        [RequirePermission("requisitions.initiate")]
         public async Task<IActionResult> SubmitRequisition(Guid id)
         {
             try
@@ -313,6 +286,7 @@ namespace UCP.API.Controllers
                     requisition.Id,
                     requisition.RequisitionNumber,
                     requisition.Status,
+                    requisition.Version,
                     Message = "Requisition submitted successfully"
                 });
             }
@@ -330,19 +304,38 @@ namespace UCP.API.Controllers
             }
         }
 
+        // ============== APPROVE ==============
         [HttpPost("{id}/approve")]
+        [RequirePermission("requisitions.approve")]
         public async Task<IActionResult> ApproveRequisition(Guid id, [FromBody] ApproveRequisitionDto dto)
         {
             try
             {
                 var userId = GetUserId();
-                var requisition = await _requisitionService.ApproveRequisitionAsync(id, dto, userId);
+                var user = await _context.Users.FindAsync(userId);
+                if (user == null)
+                    return Unauthorized(new { Message = "User not found" });
+
+                // Load the requisition to check its current status
+                var requisition = await _context.Requisitions.FindAsync(id);
+                if (requisition == null)
+                    return NotFound(new { Message = "Requisition not found" });
+
+                // Determine if the user is allowed to approve this requisition
+                if (!IsUserAuthorizedForAction(user, requisition.Status))
+                {
+                    return Forbid("You are not authorized to approve this requisition at its current stage.");
+                }
+
+                // Delegate to the service
+                var result = await _requisitionService.ApproveRequisitionAsync(id, dto, userId);
 
                 return Ok(new
                 {
-                    requisition.Id,
-                    requisition.RequisitionNumber,
-                    requisition.Status,
+                    result.Id,
+                    result.RequisitionNumber,
+                    result.Status,
+                    result.Version,
                     Message = "Requisition approved successfully"
                 });
             }
@@ -354,21 +347,45 @@ namespace UCP.API.Controllers
             {
                 return Unauthorized(new { Message = ex.Message });
             }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = "An error occurred while approving", Details = ex.Message });
+            }
         }
 
+        // ============== REJECT ==============
         [HttpPost("{id}/reject")]
+        [RequirePermission("requisitions.approve")]
         public async Task<IActionResult> RejectRequisition(Guid id, [FromBody] RejectRequisitionDto dto)
         {
             try
             {
                 var userId = GetUserId();
-                var requisition = await _requisitionService.RejectRequisitionAsync(id, dto, userId);
+                var user = await _context.Users.FindAsync(userId);
+                if (user == null)
+                    return Unauthorized(new { Message = "User not found" });
+
+                var requisition = await _context.Requisitions.FindAsync(id);
+                if (requisition == null)
+                    return NotFound(new { Message = "Requisition not found" });
+
+                if (!IsUserAuthorizedForAction(user, requisition.Status))
+                {
+                    return Forbid("You are not authorized to reject this requisition at its current stage.");
+                }
+
+                var result = await _requisitionService.RejectRequisitionAsync(id, dto, userId);
 
                 return Ok(new
                 {
-                    requisition.Id,
-                    requisition.RequisitionNumber,
-                    requisition.Status,
+                    result.Id,
+                    result.RequisitionNumber,
+                    result.Status,
+                    result.Version,
                     Message = "Requisition rejected"
                 });
             }
@@ -380,9 +397,19 @@ namespace UCP.API.Controllers
             {
                 return Unauthorized(new { Message = ex.Message });
             }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { Message = "An error occurred while rejecting", Details = ex.Message });
+            }
         }
 
+        // ============== MONEY READY ==============
         [HttpPost("{id}/money-ready")]
+        [RequirePermission("requisitions.disburse")]
         public async Task<IActionResult> MarkMoneyReady(Guid id)
         {
             try
@@ -395,6 +422,7 @@ namespace UCP.API.Controllers
                     requisition.Id,
                     requisition.RequisitionNumber,
                     requisition.Status,
+                    requisition.Version,
                     Message = "Money marked as ready"
                 });
             }
@@ -412,7 +440,9 @@ namespace UCP.API.Controllers
             }
         }
 
+        // ============== COLLECT ==============
         [HttpPost("{id}/collect")]
+        [RequirePermission("requisitions.disburse")]
         public async Task<IActionResult> CollectRequisition(Guid id, [FromBody] CollectRequisitionDto dto)
         {
             try
@@ -425,6 +455,7 @@ namespace UCP.API.Controllers
                     requisition.Id,
                     requisition.RequisitionNumber,
                     requisition.Status,
+                    requisition.Version,
                     Message = "Requisition collected successfully"
                 });
             }
@@ -442,6 +473,7 @@ namespace UCP.API.Controllers
             }
         }
 
+        // ============== ARCHIVE ==============
         [HttpPost("{id}/archive")]
         public async Task<IActionResult> ArchiveRequisition(Guid id, [FromBody] ArchiveRequisitionDto dto)
         {
@@ -466,6 +498,7 @@ namespace UCP.API.Controllers
             }
         }
 
+        // ============== LOCK MANAGEMENT ==============
         [HttpPost("{id}/lock")]
         public async Task<IActionResult> LockRequisition(Guid id, [FromBody] LockRequisitionDto dto)
         {
@@ -511,5 +544,80 @@ namespace UCP.API.Controllers
                 return Unauthorized();
             }
         }
+
+        // ============== PRIVATE HELPERS ==============
+        private async Task SaveAttachments(Guid requisitionId, List<IFormFile> files, Guid userId)
+        {
+            var uploadsFolder = Path.Combine(_env.WebRootPath ?? "wwwroot", "uploads", "requisitions", requisitionId.ToString());
+            Directory.CreateDirectory(uploadsFolder);
+
+            var allowedTypes = new[] { "application/pdf", "image/jpeg", "image/jpg", "image/png", "image/tiff" };
+            var maxFileSize = 10 * 1024 * 1024;
+
+            foreach (var file in files)
+            {
+                if (!allowedTypes.Contains(file.ContentType))
+                    continue;
+
+                if (file.Length > maxFileSize)
+                    continue;
+
+                var fileName = $"{Guid.NewGuid()}_{file.FileName}";
+                var filePath = Path.Combine(uploadsFolder, fileName);
+
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                var attachment = new RequisitionAtm
+                {
+                    Id = Guid.NewGuid(),
+                    EntityId = requisitionId,
+                    FileName = file.FileName,
+                    FilePath = $"/uploads/requisitions/{requisitionId}/{fileName}",
+                    MimeType = file.ContentType,
+                    Size = file.Length,
+                    UploadedById = userId,
+                    UploadedAt = DateTime.UtcNow,
+                    Description = "Requisition attachment",
+                    CreatedDate = DateTime.UtcNow,
+                    UpdatedDate = DateTime.UtcNow,
+                    LastProcessedTimeStamp = DateTime.UtcNow,
+                    Version = 1
+                };
+                _context.RequisitionAtms.Add(attachment);
+            }
+            await _context.SaveChangesAsync();
+        }
+
+        // Helper to check if the user is authorized to approve/reject based on status
+        private bool IsUserAuthorizedForAction(User user, string status)
+        {
+            // SuperAdmin can always act
+            if (user.Role == "SuperAdmin")
+                return true;
+
+            // Map status to required role
+            var requiredRole = status switch
+            {
+                "SENIOR_REPS_PENDING" => "SeniorRep",
+                "CHURCH_AUTH_PENDING" => "ChurchAuth",
+                "MINISTER_PENDING" => "Minister",
+                _ => null
+            };
+
+            // If no required role (e.g., DRAFT, APPROVED, etc.), only SuperAdmin can act (already handled)
+            if (requiredRole == null)
+                return false;
+
+            return user.Role == requiredRole;
+        }
+    }
+
+    public class LockRequisitionDto
+    {
+        public int? DurationSeconds { get; set; }
+        public string? Reason { get; set; }
     }
 }

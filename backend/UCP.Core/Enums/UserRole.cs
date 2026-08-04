@@ -1,18 +1,16 @@
-// UCP.Core/Enums/UserRole.cs
-
 namespace UCP.Core.Enums
 {
     public enum UserRole
     {
-        SuperAdmin,
-        Admin,
-        Accountant,
-        Minister,
-        ChurchAuth1,
-        ChurchAuth2,
-        ChurchAuth3,
-        SeniorRep1,
-        SeniorRep2,
-        GroupRep
+        SuperAdmin, //EXCLUSIVE RIGHTS
+        Admin, //IT ADMIN
+        Accountant, //FINANCE
+        Auditor, //AUDIT
+        Minister, //REVEREND
+        Treasurer, //FINANCE
+        Secretary, //ADMIN
+        ChurchAuth, //CHURCH AUTHORITY
+        SeniorRep, //ELDERS, CONVENER
+        GroupRep //STEWARDS, GROUP REPRESENTATIVE, 
     }
 }

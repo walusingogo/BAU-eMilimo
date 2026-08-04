@@ -10,6 +10,8 @@ namespace UCP.Core.Entities
 
         // Foreign Keys
         public Guid? GroupId { get; set; }
+        public Guid? SectionId { get; set; }
+        public Guid? CommitteeId { get; set; }
         public Guid? RequisitorId { get; set; }
         public Guid? ApprovedById { get; set; }
         public Guid? MoneyReadyById { get; set; }
@@ -42,12 +44,16 @@ namespace UCP.Core.Entities
 
         // Navigation properties
         public Group? Group { get; set; }
+        public Section? Section { get; set; }
+        public Committee? Committee { get; set; }
         public User? Requisitor { get; set; }
         public User? ApprovedBy { get; set; }
         public User? MoneyReadyBy { get; set; }
         public User? CollectedBy { get; set; }
         public User? ArchivedBy { get; set; }
-
+        public Guid? FirstSeniorApproverId { get; set; }
+        public Guid? SecondSeniorApproverId { get; set; }
+        
         // Collections
         public ICollection<RequisitionItem>? Items { get; set; }
     }

@@ -11,6 +11,7 @@ namespace UCP.Core.Entities
         public string? MiddleName { get; set; }
         public string LastName { get; set; } = string.Empty;
         public string Gender { get; set; } = string.Empty; // Male/Female
+        public string? ProfilePhoto { get; set; } // base64 data URL
         public string Email { get; set; } = string.Empty;
         public string PhoneNumber { get; set; } = string.Empty;
         public string MembershipId { get; set; } = string.Empty;
@@ -37,7 +38,9 @@ namespace UCP.Core.Entities
         // Navigation properties (for EF Core)
         public Section? Section { get; set; }
         public Group? Group { get; set; }
-
+        public ICollection<UserGroupAssignment> GroupAssignments { get; set; } = new List<UserGroupAssignment>();
+        public ICollection<UserCommitteeAssignment> CommitteeAssignments { get; set; } = new List<UserCommitteeAssignment>();
+        public string? CurrentSessionId { get; set; }
         // Self-referencing navigation properties for CreatedBy/UpdatedBy
         public User? CreatedBy { get; set; }
         public User? UpdatedBy { get; set; }

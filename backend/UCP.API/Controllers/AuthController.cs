@@ -11,6 +11,9 @@ using UCP.Core.Entities;
 using UCP.Core.Enums;
 using UCP.Core.Services;
 using UCP.Infrastructure.Data;
+using UCP.Core.Configuration;
+using UCP.API.Services;
+using Microsoft.Extensions.Options;
 
 namespace UCP.API.Controllers
 {
@@ -21,12 +24,14 @@ namespace UCP.API.Controllers
         private readonly AppDbContext _context;
         private readonly IConfiguration _config;
         private readonly ICurrentUserService _currentUserService;
+        private readonly SecuritySettings _security;
 
-        public AuthController(AppDbContext context, IConfiguration config, ICurrentUserService currentUserService)
+        public AuthController(AppDbContext context, IConfiguration config, ICurrentUserService currentUserService, IOptions<SecuritySettings> security)
         {
             _context = context;
             _config = config;
             _currentUserService = currentUserService;
+            _security = security.Value;
         }
 
         private string GetJwtSecret()
@@ -37,16 +42,34 @@ namespace UCP.API.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
+            var identifier = (dto.Identifier ?? dto.Email)?.Trim();
+            if (string.IsNullOrWhiteSpace(identifier))
+                return BadRequest(new { Message = "Email address or Membership ID is required." });
+
+            var normalizedIdentifier = identifier.ToLowerInvariant();
             var user = await _context.Users
-                .FirstOrDefaultAsync(u => u.Email == dto.Email);
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedIdentifier || u.MembershipId.ToLower() == normalizedIdentifier);
 
             if (user == null)
-                return Unauthorized(new { Message = "Invalid email or password" });
+                return Unauthorized(new { Message = "Invalid email, Membership ID, or password" });
 
+            // Account locked
             if (user.Locked)
                 return Unauthorized(new { Message = "Account is locked. Please contact administrator." });
 
-            // BCrypt verification
+            // Check if user is ACTIVE
+            if (!Enum.TryParse<UserStatus>(user.Status, out var statusEnum) || statusEnum != UserStatus.ACTIVE)
+            {
+                string statusMessage = statusEnum switch
+                {
+                    UserStatus.INACTIVE => "Your account has been deactivated. Please contact administrator.",
+                    UserStatus.PENDING => "Your account is pending activation. Please wait for approval.",
+                    _ => "Your account is not active. Please contact administrator."
+                };
+                return Unauthorized(new { Message = statusMessage });
+            }
+
+            // Verify password
             if (!BCryptHash.Verify(dto.Password, user.PasswordHash))
             {
                 user.PasswordAttempts++;
@@ -58,10 +81,72 @@ namespace UCP.API.Controllers
                     return Unauthorized(new { Message = "Account locked due to multiple failed attempts." });
                 }
                 await _context.SaveChangesAsync();
-                return Unauthorized(new { Message = "Invalid email or password" });
+                return Unauthorized(new { Message = "Invalid email, Membership ID, or password" });
             }
 
+            // Reset attempts, update timestamps, and generate a new session ID
             user.PasswordAttempts = 0;
+            user.LastProcessedTimeStamp = DateTime.UtcNow;
+            user.CurrentSessionId = Guid.NewGuid().ToString();
+            await _context.SaveChangesAsync();
+
+            var token = GenerateJwtToken(user);
+
+            return Ok(new
+            {
+                Token = token,
+                User = new
+                {
+                    user.Id,
+                    user.FirstName,
+                    user.LastName,
+                    user.Email,
+                    user.Role,
+                    user.Status,
+                    user.Gender,                      // <-- Added
+                    user.SectionId,
+                    user.GroupId,
+                    user.ProfilePhoto
+                }
+            });
+        }
+
+        [HttpPost("logout")]
+        [Authorize]
+        public async Task<IActionResult> Logout()
+        {
+            var userId = _currentUserService.GetUserId();
+            if (userId.HasValue)
+            {
+                var user = await _context.Users.FindAsync(userId.Value);
+                if (user != null)
+                {
+                    user.CurrentSessionId = null;
+                    await _context.SaveChangesAsync();
+                }
+            }
+            return Ok(new { Message = "Logged out successfully" });
+        }
+
+        [HttpGet("client-settings")]
+        public IActionResult GetClientSettings() => Ok(new
+        {
+            session = _security.Session,
+            passwordPolicy = _security.PasswordPolicy
+        });
+
+        [HttpPost("refresh")]
+        [Authorize]
+        public async Task<IActionResult> RefreshSession()
+        {
+            var userId = _currentUserService.GetUserId();
+            if (!userId.HasValue) return Unauthorized();
+
+            var user = await _context.Users.FindAsync(userId.Value);
+            if (user == null || user.Locked || user.Status != UserStatus.ACTIVE.ToString())
+                return Unauthorized(new { Message = "Your account is not active or has been locked." });
+
+            var sessionId = user.CurrentSessionId ?? Guid.NewGuid().ToString();
             user.LastProcessedTimeStamp = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
@@ -78,17 +163,12 @@ namespace UCP.API.Controllers
                     user.Email,
                     user.Role,
                     user.Status,
+                    user.Gender,                      // <-- Added
                     user.SectionId,
-                    user.GroupId
+                    user.GroupId,
+                    user.ProfilePhoto
                 }
             });
-        }
-
-        [HttpPost("logout")]
-        [Authorize]
-        public IActionResult Logout()
-        {
-            return Ok(new { Message = "Logged out successfully" });
         }
 
         [HttpGet("me")]
@@ -116,6 +196,7 @@ namespace UCP.API.Controllers
                 user.PhoneNumber,
                 user.Role,
                 user.Status,
+                user.Gender,                      // <-- Added
                 user.SectionId,
                 user.GroupId,
                 Section = user.Section != null ? new { user.Section.Id, user.Section.SectionNumber, user.Section.SectionName } : null,
@@ -127,6 +208,9 @@ namespace UCP.API.Controllers
         [Authorize]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
         {
+            var policyError = PasswordPolicyValidator.Validate(dto.NewPassword, _security.PasswordPolicy);
+            if (policyError != null) return BadRequest(new { Message = policyError });
+
             var userId = _currentUserService.GetUserId();
             if (!userId.HasValue)
                 return Unauthorized();
@@ -135,11 +219,12 @@ namespace UCP.API.Controllers
             if (user == null)
                 return NotFound();
 
-            // BCrypt verification
+            if (user.Status != UserStatus.ACTIVE.ToString() || user.Locked)
+                return Unauthorized(new { Message = "Your account is not active or locked." });
+
             if (!BCryptHash.Verify(dto.CurrentPassword, user.PasswordHash))
                 return BadRequest(new { Message = "Current password is incorrect" });
 
-            // Hash new password with BCrypt
             user.PasswordHash = BCryptHash.HashPassword(dto.NewPassword);
             user.PasswordExpiryDate = DateTime.UtcNow.AddDays(90);
             user.PasswordExpired = false;
@@ -187,6 +272,9 @@ namespace UCP.API.Controllers
         {
             try
             {
+                var policyError = PasswordPolicyValidator.Validate(dto.NewPassword, _security.PasswordPolicy);
+                if (policyError != null) return BadRequest(new { Message = policyError });
+
                 var secret = GetJwtSecret();
                 var key = Encoding.ASCII.GetBytes(secret);
                 var tokenHandler = new JwtSecurityTokenHandler();
@@ -211,7 +299,6 @@ namespace UCP.API.Controllers
                 if (user == null)
                     return NotFound();
 
-                // Hash new password with BCrypt
                 user.PasswordHash = BCryptHash.HashPassword(dto.NewPassword);
                 user.PasswordExpiryDate = DateTime.UtcNow.AddDays(90);
                 user.PasswordExpired = false;
@@ -245,9 +332,10 @@ namespace UCP.API.Controllers
                     new Claim("firstName", user.FirstName),
                     new Claim("lastName", user.LastName),
                     new Claim("sectionId", user.SectionId?.ToString() ?? ""),
-                    new Claim("groupId", user.GroupId?.ToString() ?? "")
+                    new Claim("groupId", user.GroupId?.ToString() ?? ""),
+                    new Claim("sessionId", user.CurrentSessionId ?? "")
                 }),
-                Expires = DateTime.UtcNow.AddDays(7),
+                Expires = DateTime.UtcNow.AddMinutes(Math.Max(1, _security.Session.LifetimeMinutes)),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
             };
             var token = tokenHandler.CreateToken(tokenDescriptor);

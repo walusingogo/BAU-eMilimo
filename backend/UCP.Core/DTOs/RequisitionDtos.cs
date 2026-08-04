@@ -5,12 +5,11 @@ using UCP.Core.Enums;
 
 namespace UCP.Core.DTOs
 {
-
     public class RequisitionStatsDto
     {
         public int Total { get; set; }
         public int Draft { get; set; }
-        public int Pending { get; set; } // SeniorRepsPending + ChurchAuthPending + MinisterPending
+        public int Pending { get; set; }
         public int Approved { get; set; }
         public int Rejected { get; set; }
         public int MoneyReady { get; set; }
@@ -21,31 +20,42 @@ namespace UCP.Core.DTOs
         public decimal PendingAmount { get; set; }
         public decimal ApprovedAmount { get; set; }
     }
-    public class CreateRequisitionDto
-    {
-        public Guid GroupId { get; set; }
-        public string Payee { get; set; } = null!;
-        public PaymentMethod PaymentMethod { get; set; }
-        public FundSource FundSource { get; set; }
-        public string PaymentDetails { get; set; } = null!;
-        public List<CreateRequisitionItemDto> Items { get; set; } = new();
-    }
 
-    public class CreateRequisitionItemDto
+    // ============ REQUISITION ITEM ============
+    public class RequisitionItemDto
     {
         public string Description { get; set; } = null!;
         public int Quantity { get; set; } = 1;
         public decimal UnitPrice { get; set; }
     }
 
+    // ============ CREATE REQUISITION ============
+    public class CreateRequisitionDto
+    {
+        public Guid? GroupId { get; set; }
+        public Guid? SectionId { get; set; }
+        public Guid? CommitteeId { get; set; }
+        public string Payee { get; set; } = null!;
+        public PaymentMethod PaymentMethod { get; set; }
+        public FundSource FundSource { get; set; }
+        public string PaymentDetails { get; set; } = null!;
+        public List<RequisitionItemDto> Items { get; set; } = new();
+        public List<IFormFile>? Files { get; set; }
+    }
+
+    // ============ UPDATE REQUISITION ============
     public class UpdateRequisitionDto
     {
         public string? Payee { get; set; }
         public PaymentMethod? PaymentMethod { get; set; }
         public string? PaymentDetails { get; set; }
-        public List<CreateRequisitionItemDto>? Items { get; set; }
+        public decimal? Amount { get; set; }
+        public int? Version { get; set; }
+        public List<RequisitionItemDto>? Items { get; set; }
+        public List<IFormFile>? Files { get; set; }
     }
 
+    // ============ APPROVAL DTOS ============
     public class ApproveRequisitionDto
     {
         public string? SignatureData { get; set; }
@@ -67,30 +77,26 @@ namespace UCP.Core.DTOs
         public string? Reason { get; set; }
     }
 
+    // ============ FILTER ============
     public class RequisitionFilterDto
     {
         public string? Status { get; set; }
         public Guid? GroupId { get; set; }
+        public Guid? SectionId { get; set; }
+        public Guid? CommitteeId { get; set; }
         public DateTime? FromDate { get; set; }
         public DateTime? ToDate { get; set; }
     }
 
-    // ============================================
-    // NEW: Combined DTO for Requisition + Files
-    // ============================================
-
-    public class CreateRequisitionWithFilesDto
+    // ============ ATTACHMENT RESPONSE DTO ============
+    public class RequisitionAttachmentResponse
     {
-        public Guid GroupId { get; set; }
-        public string Payee { get; set; } = null!;
-        public PaymentMethod PaymentMethod { get; set; }
-        public FundSource FundSource { get; set; }
-        public string PaymentDetails { get; set; } = null!;
-        public List<CreateRequisitionItemDto> Items { get; set; } = new();
-
-        /// <summary>
-        /// List of files to attach (invoices, receipts, etc.)
-        /// </summary>
-        public List<IFormFile>? Files { get; set; }
+        public Guid Id { get; set; }
+        public string FileName { get; set; } = string.Empty;
+        public string FilePath { get; set; } = string.Empty;
+        public long Size { get; set; }
+        public string MimeType { get; set; } = string.Empty;
+        public DateTime UploadedAt { get; set; }
+        public Guid? UploadedBy { get; set; }
     }
 }

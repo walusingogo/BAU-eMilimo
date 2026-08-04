@@ -5,7 +5,6 @@ namespace UCP.Core.Enums
         PENDING,
         ACTIVE,
         INACTIVE,
-        LOCKED,
-        SUSPENDED
+        LOCKED
     }
 }

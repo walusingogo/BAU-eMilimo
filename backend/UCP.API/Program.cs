@@ -1,3 +1,4 @@
+// backend/UCP.API/Program.cs
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -7,10 +8,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using UCP.API.Services;
 using UCP.Core.Services;
+using UCP.Core.Configuration;
 using UCP.Infrastructure.Data;
 using UCP.Infrastructure.SeedData;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
 
 // Ensure wwwroot exists BEFORE the host builds its static file provider,
 // otherwise ASP.NET Core falls back to a NullFileProvider and static files
@@ -49,8 +52,10 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+builder.Services.AddScoped<IGroupAccessService, GroupAccessService>();
 builder.Services.AddScoped<IRequisitionService, RequisitionService>();
 builder.Services.AddScoped<ILockService, LockService>();
+builder.Services.AddScoped<IContributionService, ContributionService>();  // ← Contribution Service
 
 // ----- Swagger with JWT Support -----
 builder.Services.AddSwaggerGen(c =>
@@ -109,6 +114,9 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
         throw new InvalidOperationException($"Unsupported database provider: {provider}");
     }
 });
+builder.Services.AddScoped<UCP.API.Services.IRolePermissionService, UCP.API.Services.RolePermissionService>();
+builder.Services.AddSingleton<UCP.API.Services.ISystemLogWriter, UCP.API.Services.SystemLogWriter>();
+builder.Services.AddHostedService<UCP.API.Services.ApplicationLifecycleLogger>();
 
 // ----- JWT Authentication -----
 var jwtSecret = builder.Configuration["Jwt:Secret"] ?? throw new InvalidOperationException("JWT Secret is not configured.");
@@ -178,7 +186,9 @@ app.UseRouting();
 
 // Authentication & Authorization (order matters)
 app.UseAuthentication();
+app.UseMiddleware<UCP.API.Middleware.ProcessLoggingMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<UCP.API.Middleware.SessionValidationMiddleware>();
 
 app.MapControllers();
 

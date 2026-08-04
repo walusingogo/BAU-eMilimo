@@ -2,7 +2,8 @@ namespace UCP.Core.DTOs
 {
     public class LoginDto
     {
-        public string Email { get; set; } = null!;
+        public string? Identifier { get; set; }
+        public string? Email { get; set; }
         public string Password { get; set; } = null!;
     }
 
@@ -21,5 +22,10 @@ namespace UCP.Core.DTOs
     {
         public string Token { get; set; } = null!;
         public string NewPassword { get; set; } = null!;
+    }
+
+    public class AdminSetPasswordDto
+    {
+        public string NewPassword { get; set; } = string.Empty;
     }
 }

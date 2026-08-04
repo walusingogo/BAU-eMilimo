@@ -21,6 +21,7 @@ namespace UCP.Core.Entities
 
         // Collections
         public ICollection<User>? Users { get; set; }
+        public ICollection<UserGroupAssignment> UserAssignments { get; set; } = new List<UserGroupAssignment>();
         public ICollection<Group>? ChildGroups { get; set; }
         public ICollection<Requisition>? Requisitions { get; set; }
     }
