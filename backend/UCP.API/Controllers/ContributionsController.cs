@@ -1,4 +1,3 @@
-// backend/UCP.API/Controllers/ContributionsController.cs
 using Microsoft.AspNetCore.Authorization;
 using UCP.API.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -9,6 +8,7 @@ using UCP.Core.DTOs;
 using UCP.Core.Enums;
 using UCP.Core.Services;
 using UCP.Infrastructure.Data;
+using UCP.Core.Entities;
 using UCP.Core.Entities.Companions;
 
 namespace UCP.API.Controllers
@@ -44,6 +44,82 @@ namespace UCP.API.Controllers
             if (!userId.HasValue)
                 throw new UnauthorizedAccessException("User not authenticated");
             return userId.Value;
+        }
+
+        private static readonly JsonSerializerOptions AllocationJsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        private static List<ContributionAllocationRequest> ParseAllocations(
+            string allocationsJson)
+        {
+            if (string.IsNullOrWhiteSpace(allocationsJson))
+            {
+                throw new InvalidOperationException(
+                    "The allocations payload is required.");
+            }
+
+            List<ContributionAllocationRequest>? allocations;
+
+            try
+            {
+                allocations = JsonSerializer.Deserialize<
+                    List<ContributionAllocationRequest>>(
+                        allocationsJson,
+                        AllocationJsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidOperationException(
+                    "The allocations payload contains invalid JSON.",
+                    ex);
+            }
+
+            allocations ??= new List<ContributionAllocationRequest>();
+
+            if (allocations.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "At least one allocation is required.");
+            }
+
+            for (var index = 0; index < allocations.Count; index++)
+            {
+                var allocation = allocations[index];
+                var targetCount = 0;
+
+                if (allocation.GroupId.HasValue) targetCount++;
+                if (allocation.SectionId.HasValue) targetCount++;
+                if (allocation.CommitteeId.HasValue) targetCount++;
+
+                if (targetCount == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Allocation {index + 1} must contain a GroupId, " +
+                        "SectionId, or CommitteeId.");
+                }
+
+                if (targetCount > 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Allocation {index + 1} must contain only one target.");
+                }
+
+                if (allocation.ContributionTypeId == Guid.Empty)
+                {
+                    throw new InvalidOperationException(
+                        $"Allocation {index + 1} requires a ContributionTypeId.");
+                }
+
+                if (allocation.AllocatedAmount <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Allocation {index + 1} must have an amount greater than zero.");
+                }
+            }
+
+            return allocations;
         }
 
         // ============== CREATE ==============
@@ -85,8 +161,8 @@ namespace UCP.API.Controllers
             }
         }
 
-        // ============== GET: Contribution by ID ==============
-        [HttpGet("{id}")]
+        // ============== GET BY ID ==============
+        [HttpGet("{id:guid}")]
         [RequirePermission("contributions.view")]
         public async Task<IActionResult> GetContribution(Guid id)
         {
@@ -145,16 +221,16 @@ namespace UCP.API.Controllers
                         contribution.ConfirmedBy.Id,
                         contribution.ConfirmedBy.FirstName,
                         contribution.ConfirmedBy.LastName,
-                        contribution.ConfirmedBy.Email
-                        ,contribution.ConfirmedBy.SignatureData
+                        contribution.ConfirmedBy.Email,
+                        contribution.ConfirmedBy.SignatureData
                     } : null,
                     CreatedBy = contribution.CreatedBy != null ? new
                     {
                         contribution.CreatedBy.Id,
                         contribution.CreatedBy.FirstName,
                         contribution.CreatedBy.LastName,
-                        contribution.CreatedBy.Email
-                        ,contribution.CreatedBy.SignatureData
+                        contribution.CreatedBy.Email,
+                        contribution.CreatedBy.SignatureData
                     } : null,
                     Attachments = contribution.Attachments?.Select(a => new
                     {
@@ -182,7 +258,7 @@ namespace UCP.API.Controllers
             }
         }
 
-        // ============== GET: All Contributions ==============
+        // ============== GET ALL ==============
         [HttpGet]
         [RequirePermission("contributions.view")]
         public async Task<IActionResult> GetContributions(
@@ -255,19 +331,53 @@ namespace UCP.API.Controllers
         }
 
         // ============== UPDATE ==============
-        [HttpPut("{id}")]
+        [HttpPut("{id:guid}")]
         [RequirePermission("contributions.initiate")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> UpdateContribution(Guid id, [FromForm] UpdateContributionDto dto)
+        public async Task<IActionResult> UpdateContribution(
+            Guid id,
+            [FromForm] UpdateContributionDto dto)
         {
             try
             {
                 var userId = GetUserId();
-                var contribution = await _contributionService.UpdateContributionAsync(id, dto, userId);
 
-                if (dto.Files != null && dto.Files.Any())
+                // AllocationsJson is optional. When it is omitted, existing
+                // allocations are left unchanged. When supplied, it replaces
+                // the contribution's allocations through the service layer.
+                if (dto.AllocationsJson != null)
                 {
-                    await _contributionService.UploadAttachmentsAsync(id, dto.Files, userId);
+                    dto.Allocations = ParseAllocations(dto.AllocationsJson);
+
+                    if (dto.Amount.HasValue)
+                    {
+                        var allocatedTotal = dto.Allocations
+                            .Sum(allocation => allocation.AllocatedAmount);
+
+                        if (allocatedTotal != dto.Amount.Value)
+                        {
+                            return BadRequest(new
+                            {
+                                Message =
+                                    $"Allocation total {allocatedTotal:N2} must equal " +
+                                    $"the contribution amount {dto.Amount.Value:N2}."
+                            });
+                        }
+                    }
+                }
+
+                var contribution =
+                    await _contributionService.UpdateContributionAsync(
+                        id,
+                        dto,
+                        userId);
+
+                if (dto.Files?.Any() == true)
+                {
+                    await _contributionService.UploadAttachmentsAsync(
+                        id,
+                        dto.Files,
+                        userId);
                 }
 
                 return Ok(new
@@ -285,9 +395,9 @@ namespace UCP.API.Controllers
             {
                 return NotFound(new { Message = ex.Message });
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                return Unauthorized();
+                return Unauthorized(new { Message = ex.Message });
             }
             catch (InvalidOperationException ex)
             {
@@ -295,13 +405,21 @@ namespace UCP.API.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating contribution");
-                return StatusCode(500, new { message = "An unexpected error occurred." });
+                _logger.LogError(
+                    ex,
+                    "Error updating contribution {ContributionId}",
+                    id);
+
+                return StatusCode(500, new
+                {
+                    Message = "An unexpected error occurred.",
+                    Details = ex.Message
+                });
             }
         }
 
         // ============== REJECT ==============
-        [HttpPost("{id}/reject")]
+        [HttpPost("{id:guid}/reject")]
         [RequirePermission("contributions.confirm")]
         public async Task<IActionResult> RejectContribution(Guid id, [FromBody] RejectContributionDto dto)
         {
@@ -339,8 +457,41 @@ namespace UCP.API.Controllers
             }
         }
 
+        // ============== SUBMIT (NEW) ==============
+        [HttpPut("{id:guid}/submit")]
+        [RequirePermission("contributions.initiate")]
+        public async Task<IActionResult> SubmitContribution(Guid id)
+        {
+            try
+            {
+                var userId = GetUserId();
+                var contribution = await _contributionService.SubmitContributionAsync(id, userId);
+                return Ok(new
+                {
+                    contribution.Id,
+                    contribution.ContributionNumber,
+                    contribution.Status,
+                    contribution.Version,
+                    Message = "Contribution submitted successfully"
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error submitting contribution");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
+        }
+
         // ============== CONFIRM ==============
-        [HttpPut("{id}/confirm")]
+        [HttpPut("{id:guid}/confirm")]
         [RequirePermission("contributions.confirm")]
         public async Task<IActionResult> ConfirmContribution(Guid id)
         {
@@ -378,7 +529,7 @@ namespace UCP.API.Controllers
         }
 
         // ============== ARCHIVE ==============
-        [HttpPost("{id}/archive")]
+        [HttpPost("{id:guid}/archive")]
         [Authorize]
         public async Task<IActionResult> ArchiveContribution(Guid id, [FromBody] ArchiveContributionDto dto)
         {
@@ -440,6 +591,76 @@ namespace UCP.API.Controllers
             }
         }
 
+        [HttpPost("types")]
+        [RequirePermission("contributions.admin")]
+        public async Task<IActionResult> CreateContributionType([FromBody] CreateContributionTypeDto dto)
+        {
+            try
+            {
+                if (await _context.ContributionTypes.AnyAsync(t => t.Code == dto.Code))
+                    return BadRequest(new { Message = "Code already exists." });
+
+                var type = new ContributionType
+                {
+                    Code = dto.Code,
+                    Name = dto.Name,
+                    Description = dto.Description,
+                    IsActive = true
+                };
+
+                _context.ContributionTypes.Add(type);
+                await _context.SaveChangesAsync();
+
+                return CreatedAtAction(nameof(GetContributionTypes), new { id = type.Id }, type);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating contribution type");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
+        }
+
+        [HttpPut("types/{id}")]
+        [RequirePermission("contributions.admin")]
+        public async Task<IActionResult> UpdateContributionType(Guid id, [FromBody] UpdateContributionTypeDto dto)
+        {
+            var type = await _context.ContributionTypes.FindAsync(id);
+            if (type == null)
+                return NotFound(new { Message = "Type not found" });
+
+            if (await _context.ContributionTypes.AnyAsync(t => t.Code == dto.Code && t.Id != id))
+                return BadRequest(new { Message = "Code already exists." });
+
+            type.Code = dto.Code;
+            type.Name = dto.Name;
+            type.Description = dto.Description;
+
+            await _context.SaveChangesAsync();
+            return Ok(type);
+        }
+
+        [HttpPut("types/{id}/toggle-status")]
+        [RequirePermission("contributions.admin")]
+        public async Task<IActionResult> ToggleTypeStatus(Guid id)
+        {
+            try
+            {
+                var type = await _context.ContributionTypes.FindAsync(id);
+                if (type == null)
+                    return NotFound(new { Message = "Type not found" });
+
+                type.IsActive = !type.IsActive;
+                await _context.SaveChangesAsync();
+
+                return Ok(new { Message = $"Status toggled to {(type.IsActive ? "Active" : "Inactive")}" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error toggling type status");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
+        }
+
         // ============== SOURCES ==============
         [HttpGet("sources")]
         public async Task<IActionResult> GetContributionSources()
@@ -456,24 +677,76 @@ namespace UCP.API.Controllers
             }
         }
 
-        // ============== BANK ACCOUNTS ==============
-        [HttpGet("bank-accounts")]
-        public async Task<IActionResult> GetBankAccounts()
+        [HttpPost("sources")]
+        [RequirePermission("contributions.admin")]
+        public async Task<IActionResult> CreateContributionSource([FromBody] CreateContributionSourceDto dto)
         {
             try
             {
-                var accounts = await _contributionService.GetBankAccountsAsync();
-                return Ok(new { data = accounts });
+                if (await _context.ContributionSources.AnyAsync(s => s.Name == dto.Name))
+                    return BadRequest(new { Message = "Source name already exists." });
+
+                var source = new ContributionSource
+                {
+                    Name = dto.Name,
+                    Description = dto.Description,
+                    IsActive = true
+                };
+
+                _context.ContributionSources.Add(source);
+                await _context.SaveChangesAsync();
+
+                return CreatedAtAction(nameof(GetContributionSources), new { id = source.Id }, source);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting bank accounts");
+                _logger.LogError(ex, "Error creating contribution source");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
+            }
+        }
+
+        [HttpPut("sources/{id}")]
+        [RequirePermission("contributions.admin")]
+        public async Task<IActionResult> UpdateContributionSource(Guid id, [FromBody] UpdateContributionSourceDto dto)
+        {
+            var source = await _context.ContributionSources.FindAsync(id);
+            if (source == null)
+                return NotFound(new { Message = "Source not found" });
+
+            if (await _context.ContributionSources.AnyAsync(s => s.Name == dto.Name && s.Id != id))
+                return BadRequest(new { Message = "Name already exists." });
+
+            source.Name = dto.Name;
+            source.Description = dto.Description;
+
+            await _context.SaveChangesAsync();
+            return Ok(source);
+        }
+
+        [HttpPut("sources/{id}/toggle-status")]
+        [RequirePermission("contributions.admin")]
+        public async Task<IActionResult> ToggleSourceStatus(Guid id)
+        {
+            try
+            {
+                var source = await _context.ContributionSources.FindAsync(id);
+                if (source == null)
+                    return NotFound(new { Message = "Source not found" });
+
+                source.IsActive = !source.IsActive;
+                await _context.SaveChangesAsync();
+
+                return Ok(new { Message = $"Status toggled to {(source.IsActive ? "Active" : "Inactive")}" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error toggling source status");
                 return StatusCode(500, new { message = "An unexpected error occurred." });
             }
         }
 
         // ============== ATTACHMENTS ==============
-        [HttpPost("{id}/attachments")]
+        [HttpPost("{id:guid}/attachments")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> UploadAttachments(Guid id, List<IFormFile> files)
         {
@@ -511,7 +784,7 @@ namespace UCP.API.Controllers
             }
         }
 
-        [HttpGet("{id}/attachments")]
+        [HttpGet("{id:guid}/attachments")]
         public async Task<IActionResult> GetAttachments(Guid id)
         {
             try
@@ -531,7 +804,7 @@ namespace UCP.API.Controllers
             }
         }
 
-        [HttpDelete("{id}/attachments/{attachmentId}")]
+        [HttpDelete("{id:guid}/attachments/{attachmentId}")]
         public async Task<IActionResult> DeleteAttachment(Guid id, Guid attachmentId)
         {
             try

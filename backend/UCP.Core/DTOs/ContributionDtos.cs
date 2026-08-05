@@ -1,5 +1,6 @@
 // backend/UCP.Core/DTOs/ContributionDtos.cs
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http;
 using UCP.Core.Enums;
 
@@ -63,23 +64,78 @@ namespace UCP.Core.DTOs
         public string? Notes { get; set; }
     }
 
-    // ============ UPDATE DTO ============
+    // ============ UPDATE CONTRIBUTION DTO ============
     public class UpdateContributionDto
     {
+        [Range(0.01, double.MaxValue)]
         public decimal? Amount { get; set; }
+
+        public DateTime? ContributionDate { get; set; }
+
         public string? PaymentMethod { get; set; }
+
         public string? Description { get; set; }
+
         public string? ReferenceNumber { get; set; }
+
         public Guid? ContributionTypeId { get; set; }
+
         public Guid? SourceId { get; set; }
+
         public Guid? BankAccountId { get; set; }
+
+        public bool? IsSplit { get; set; }
+
         public int? Version { get; set; }
+
+        // Send the allocations from Angular as:
+        // formData.append("AllocationsJson", JSON.stringify(allocations));
+        // Null means that the current allocations must remain unchanged.
+        public string? AllocationsJson { get; set; }
+
+        // Populated by ContributionsController after AllocationsJson is parsed.
+        // The service can continue reading dto.Allocations as before.
+        [JsonIgnore]
         public List<ContributionAllocationRequest>? Allocations { get; set; }
+
         public List<IFormFile>? Files { get; set; }
     }
 
-    // ============ RESPONSE DTOs ============
+    // ============ CREATE DTOs for Types and Sources ============
+    public class CreateContributionTypeDto
+    {
+        [Required]
+        public string Code { get; set; } = string.Empty;
 
+        [Required]
+        public string Name { get; set; } = string.Empty;
+
+        public string? Description { get; set; }
+    }
+
+    public class CreateContributionSourceDto
+    {
+        [Required]
+        public string Name { get; set; } = string.Empty;
+
+        public string? Description { get; set; }
+    }
+
+    // ============ UPDATE DTOs for Types and Sources ============
+    public class UpdateContributionTypeDto
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+    }
+
+    public class UpdateContributionSourceDto
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+    }
+
+    // ============ RESPONSE DTOs ============
     public class ContributionResponse
     {
         public Guid Id { get; set; }
@@ -108,12 +164,14 @@ namespace UCP.Core.DTOs
         public List<ContributionAttachmentResponse> Attachments { get; set; } = new();
     }
 
+    // FIXED: Added IsActive to the two response DTOs
     public class ContributionTypeResponse
     {
         public Guid Id { get; set; }
         public string Code { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
         public string? Description { get; set; }
+        public bool IsActive { get; set; }   // <-- ADDED
     }
 
     public class ContributionSourceResponse
@@ -121,6 +179,7 @@ namespace UCP.Core.DTOs
         public Guid Id { get; set; }
         public string Name { get; set; } = string.Empty;
         public string? Description { get; set; }
+        public bool IsActive { get; set; }   // <-- ADDED
     }
 
     public class ContributionAllocationResponse

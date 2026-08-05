@@ -19,23 +19,26 @@ namespace UCP.API.Services
         private readonly IWebHostEnvironment _webHostEnvironment;
         private readonly IConfiguration _configuration;
         private readonly IGroupAccessService _groupAccess;
+        private readonly ICurrentUserService _currentUserService;
 
         public ContributionService(
             AppDbContext context,
             ILogger<ContributionService> logger,
             IWebHostEnvironment webHostEnvironment,
             IConfiguration configuration,
-            IGroupAccessService groupAccess)
+            IGroupAccessService groupAccess,
+            ICurrentUserService currentUserService)
         {
             _context = context;
             _logger = logger;
             _webHostEnvironment = webHostEnvironment;
             _configuration = configuration;
             _groupAccess = groupAccess;
+            _currentUserService = currentUserService;
         }
 
         // ============================================
-        // FILE STORAGE HELPERS (fully configurable)
+        // FILE STORAGE HELPERS
         // ============================================
 
         private string GetFileStorageBasePath() =>
@@ -71,7 +74,20 @@ namespace UCP.API.Services
 
             var query = _context.Contributions.AsQueryable();
 
-            if (user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
+            // Roles that have global access
+            var globalRoles = new[]
+            {
+                UserRole.SuperAdmin.ToString(),
+                UserRole.Admin.ToString(),
+                UserRole.Accountant.ToString(),
+                UserRole.Secretary.ToString(),
+                UserRole.ChurchAuth.ToString(),
+                UserRole.Minister.ToString(),
+                UserRole.Auditor.ToString()
+            };
+            var hasGlobalAccess = _groupAccess.HasGlobalAccess() || globalRoles.Contains(user.Role);
+
+            if (!hasGlobalAccess)
             {
                 var accessibleIds = await _groupAccess.GetAccessibleGroupIdsAsync();
                 var sections = await _groupAccess.GetAccessibleSectionIdsAsync();
@@ -189,7 +205,6 @@ namespace UCP.API.Services
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                // Handle file uploads if any
                 if (request.Files != null && request.Files.Any())
                 {
                     await UploadAttachmentsAsync(contribution.Id, request.Files, userId);
@@ -356,10 +371,10 @@ namespace UCP.API.Services
         }
 
         // ============================================
-        // UPDATE
+        // SUBMIT
         // ============================================
 
-        public async Task<ContributionResponse> UpdateContributionAsync(Guid contributionId, UpdateContributionDto dto, Guid userId)
+        public async Task<ContributionResponse> SubmitContributionAsync(Guid contributionId, Guid userId)
         {
             var contribution = await _context.Contributions
                 .Include(c => c.Allocations)
@@ -369,94 +384,210 @@ namespace UCP.API.Services
                 throw new KeyNotFoundException("Contribution not found");
 
             if (contribution.Status != ContributionStatus.DRAFT.ToString())
+                throw new InvalidOperationException("Only draft contributions can be submitted");
+
+            contribution.Status = ContributionStatus.PENDING.ToString();
+            contribution.UpdatedById = userId;
+            contribution.UpdatedDate = DateTime.UtcNow;
+            contribution.Version++;
+
+            await _context.SaveChangesAsync();
+
+            return await GetContributionByIdAsync(contributionId)
+                ?? throw new Exception("Failed to retrieve submitted contribution");
+        }
+
+        // ============================================
+        // UPDATE
+        // ============================================
+
+        public async Task<ContributionResponse> UpdateContributionAsync(Guid contributionId, UpdateContributionDto dto, Guid userId)
+        {
+            var contribution = await _context.Contributions
+                .Include(c => c.Allocations)
+                .FirstOrDefaultAsync(c => c.Id == contributionId && !c.IsArchived);
+
+            if (contribution == null)
+                throw new KeyNotFoundException("Contribution not found");
+
+            if (contribution.Status != ContributionStatus.DRAFT.ToString())
                 throw new InvalidOperationException("Only draft contributions can be updated");
 
-            // Check version for concurrency
             if (dto.Version.HasValue && dto.Version.Value != contribution.Version)
             {
                 throw new DbUpdateConcurrencyException(
-                    $"This contribution has been modified by another user. Current version: {contribution.Version}, Your version: {dto.Version}"
+                    $"This contribution has been modified by another user. Current version: {contribution.Version}, Your version: {dto.Version.Value}"
                 );
             }
 
             var effectiveAmount = dto.Amount ?? contribution.Amount;
 
+            if (effectiveAmount <= 0)
+                throw new InvalidOperationException("Contribution amount must be greater than zero");
+
             if (dto.ContributionTypeId.HasValue)
             {
-                var contributionType = await _context.ContributionTypes.FindAsync(dto.ContributionTypeId.Value);
+                var contributionType = await _context.ContributionTypes
+                    .FirstOrDefaultAsync(x => x.Id == dto.ContributionTypeId.Value && x.IsActive);
+
                 if (contributionType == null)
-                    throw new KeyNotFoundException($"Contribution type with ID {dto.ContributionTypeId.Value} not found");
+                    throw new KeyNotFoundException($"Active contribution type with ID {dto.ContributionTypeId.Value} not found");
+
                 contribution.ContributionTypeId = dto.ContributionTypeId.Value;
             }
 
             if (dto.SourceId.HasValue)
             {
-                var source = await _context.ContributionSources.FindAsync(dto.SourceId.Value);
+                var source = await _context.ContributionSources
+                    .FirstOrDefaultAsync(x => x.Id == dto.SourceId.Value && x.IsActive);
+
                 if (source == null)
-                    throw new KeyNotFoundException($"Source with ID {dto.SourceId.Value} not found");
+                    throw new KeyNotFoundException($"Active contribution source with ID {dto.SourceId.Value} not found");
+
                 contribution.SourceId = dto.SourceId.Value;
             }
 
-            if (dto.Allocations != null && dto.Allocations.Any())
-            {
-                var totalAllocated = dto.Allocations.Sum(a => a.AllocatedAmount);
-                if (Math.Abs(totalAllocated - effectiveAmount) > 0.01m)
-                    throw new InvalidOperationException($"Total allocated amount ({totalAllocated:F2}) must equal contribution amount ({effectiveAmount:F2})");
+            await using var transaction = await _context.Database.BeginTransactionAsync();
 
-                foreach (var alloc in dto.Allocations)
+            try
+            {
+                if (dto.Allocations != null)
                 {
-                    if (new[] { alloc.GroupId, alloc.SectionId, alloc.CommitteeId }.Count(x => x.HasValue) != 1)
-                        throw new InvalidOperationException("Each allocation must select exactly one contributing entity.");
+                    if (dto.Allocations.Count == 0)
+                        throw new InvalidOperationException("At least one allocation is required");
+
+                    var totalAllocated = dto.Allocations.Sum(a => a.AllocatedAmount);
+                    if (Math.Abs(totalAllocated - effectiveAmount) > 0.01m)
+                    {
+                        throw new InvalidOperationException(
+                            $"Total allocated amount ({totalAllocated:F2}) must equal contribution amount ({effectiveAmount:F2})"
+                        );
+                    }
+
+                    var primaryCount = dto.Allocations.Count(a => a.IsPrimary);
+                    if (primaryCount != 1)
+                        throw new InvalidOperationException("Exactly one allocation must be marked as primary");
+
+                    foreach (var allocation in dto.Allocations)
+                    {
+                        var selectedTargetCount = new[]
+                        {
+                            allocation.GroupId,
+                            allocation.SectionId,
+                            allocation.CommitteeId
+                        }.Count(x => x.HasValue);
+
+                        if (selectedTargetCount != 1)
+                            throw new InvalidOperationException("Each allocation must select exactly one group, section, or committee");
+
+                        if (allocation.AllocatedAmount <= 0)
+                            throw new InvalidOperationException("Each allocation amount must be greater than zero");
+
+                        if (!await _groupAccess.CanAccessEntityAsync(
+                                allocation.GroupId,
+                                allocation.SectionId,
+                                allocation.CommitteeId))
+                        {
+                            throw new UnauthorizedAccessException(
+                                "You are not assigned to one or more selected entities"
+                            );
+                        }
+
+                        var entityExists = allocation.GroupId.HasValue
+                            ? await _context.Groups.AnyAsync(x =>
+                                x.Id == allocation.GroupId.Value && x.IsActive)
+                            : allocation.SectionId.HasValue
+                                ? await _context.Sections.AnyAsync(x =>
+                                    x.Id == allocation.SectionId.Value && x.IsActive)
+                                : await _context.Committees.AnyAsync(x =>
+                                    x.Id == allocation.CommitteeId!.Value && x.IsActive);
+
+                        if (!entityExists)
+                            throw new KeyNotFoundException("One or more selected entities were not found or are inactive");
+                    }
+
+                    var existingAllocations = contribution.Allocations.ToList();
+                    if (existingAllocations.Count > 0)
+                    {
+                        _context.ContributionAllocations.RemoveRange(existingAllocations);
+                        contribution.Allocations.Clear();
+                    }
+
+                    foreach (var allocationDto in dto.Allocations)
+                    {
+                        var percentage = allocationDto.PercentageAllocation
+                            ?? (allocationDto.AllocatedAmount / effectiveAmount * 100);
+
+                        contribution.Allocations.Add(new ContributionAllocation
+                        {
+                            Id = Guid.NewGuid(),
+                            ContributionId = contribution.Id,
+                            GroupId = allocationDto.GroupId,
+                            SectionId = allocationDto.SectionId,
+                            CommitteeId = allocationDto.CommitteeId,
+                            AllocatedAmount = allocationDto.AllocatedAmount,
+                            PercentageAllocation = percentage,
+                            IsPrimary = allocationDto.IsPrimary,
+                            Notes = allocationDto.Notes,
+                            CreatedById = userId,
+                            CreatedDate = DateTime.UtcNow,
+                            Version = 1
+                        });
+                    }
+
+                    contribution.IsSplit = dto.Allocations.Count > 1;
+                }
+                else if (dto.IsSplit.HasValue)
+                {
+                    contribution.IsSplit = dto.IsSplit.Value;
                 }
 
-                _context.ContributionAllocations.RemoveRange(contribution.Allocations);
+                if (dto.Amount.HasValue)
+                    contribution.Amount = dto.Amount.Value;
 
-                var newAllocations = dto.Allocations.Select(a => new ContributionAllocation
+                if (dto.ContributionDate.HasValue)
+                    contribution.ContributionDate = NormalizeUtc(dto.ContributionDate.Value);
+
+                if (dto.PaymentMethod != null)
+                    contribution.PaymentMethod = dto.PaymentMethod;
+
+                if (dto.Description != null)
+                    contribution.Description = dto.Description;
+
+                if (dto.ReferenceNumber != null)
+                    contribution.ReferenceNumber = dto.ReferenceNumber;
+
+                if (dto.BankAccountId.HasValue)
                 {
-                    Id = Guid.NewGuid(),
-                    ContributionId = contribution.Id,
-                    GroupId = a.GroupId,
-                    SectionId = a.SectionId,
-                    CommitteeId = a.CommitteeId,
-                    AllocatedAmount = a.AllocatedAmount,
-                    PercentageAllocation = a.PercentageAllocation ?? (a.AllocatedAmount / effectiveAmount * 100),
-                    IsPrimary = a.IsPrimary,
-                    Notes = a.Notes,
-                    CreatedById = userId,
-                    CreatedDate = DateTime.UtcNow,
-                    Version = 1
-                }).ToList();
+                    var bankAccountExists = await _context.BankAccounts.AnyAsync(x =>
+                        x.Id == dto.BankAccountId.Value && x.IsActive);
 
-                contribution.Allocations = newAllocations;
-                _context.ContributionAllocations.AddRange(newAllocations);
+                    if (!bankAccountExists)
+                        throw new KeyNotFoundException($"Active bank account with ID {dto.BankAccountId.Value} not found");
+
+                    contribution.BankAccountId = dto.BankAccountId.Value;
+                }
+                else if (dto.PaymentMethod != null &&
+                         dto.PaymentMethod.Equals("CASH", StringComparison.OrdinalIgnoreCase))
+                {
+                    contribution.BankAccountId = null;
+                }
+
+                contribution.UpdatedById = userId;
+                contribution.UpdatedDate = DateTime.UtcNow;
+                contribution.Version++;
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
             }
 
-            if (dto.Amount.HasValue)
-                contribution.Amount = dto.Amount.Value;
-
-            if (!string.IsNullOrEmpty(dto.PaymentMethod))
-                contribution.PaymentMethod = dto.PaymentMethod;
-
-            if (dto.Description != null)
-                contribution.Description = dto.Description;
-
-            if (dto.ReferenceNumber != null)
-                contribution.ReferenceNumber = dto.ReferenceNumber;
-
-            if (dto.BankAccountId.HasValue)
-                contribution.BankAccountId = dto.BankAccountId.Value;
-
-            contribution.UpdatedById = userId;
-            contribution.UpdatedDate = DateTime.UtcNow;
-            contribution.Version++;
-
-            // This contribution was loaded by the current context and is already
-            // tracked. Update() would traverse allocations with assigned GUIDs and
-            // incorrectly classify those new rows as Modified rather than Added.
-            await _context.SaveChangesAsync();
-
             return await GetContributionByIdAsync(contributionId)
-                ?? throw new Exception("Failed to retrieve updated contribution");
+                ?? throw new InvalidOperationException("The contribution was updated but could not be reloaded");
         }
 
         // ============================================
@@ -487,20 +618,44 @@ namespace UCP.API.Services
         }
 
         // ============================================
-        // GET BY ID
+        // GET BY ID – MODIFIED for global roles
         // ============================================
 
         public async Task<ContributionResponse?> GetContributionByIdAsync(Guid id)
         {
+            var userId = _currentUserService.GetUserId();
+            if (!userId.HasValue)
+                throw new UnauthorizedAccessException("User not authenticated");
+
+            var user = await _context.Users.FindAsync(userId.Value);
+            var userRole = user?.Role;
+
+            // Roles that have global access
+            var globalRoles = new[]
+            {
+                UserRole.SuperAdmin.ToString(),
+                UserRole.Admin.ToString(),
+                UserRole.Accountant.ToString(),
+                UserRole.Secretary.ToString(),
+                UserRole.ChurchAuth.ToString(),
+                UserRole.Minister.ToString(),
+                UserRole.Auditor.ToString()
+            };
+            var hasGlobalAccess = _groupAccess.HasGlobalAccess() || globalRoles.Contains(userRole);
+
             var accessibleIds = await _groupAccess.GetAccessibleGroupIdsAsync();
             var accessibleSections = await _groupAccess.GetAccessibleSectionIdsAsync();
             var accessibleCommittees = await _groupAccess.GetAccessibleCommitteeIdsAsync();
-            var hasGlobalAccess = _groupAccess.HasGlobalAccess();
+
             var contribution = await _context.Contributions
                 .Include(c => c.ContributionType)
                 .Include(c => c.Source)
                 .Include(c => c.Allocations)
                     .ThenInclude(a => a.Group)
+                .Include(c => c.Allocations)
+                    .ThenInclude(a => a.Section)
+                .Include(c => c.Allocations)
+                    .ThenInclude(a => a.Committee)
                 .Include(c => c.ReceivedByUser)
                 .Include(c => c.ConfirmedByUser)
                 .Include(c => c.CreatedByUser)
@@ -508,23 +663,49 @@ namespace UCP.API.Services
                 .Include(c => c.Attachments)
                 .Include(c => c.BankAccount)
                 .FirstOrDefaultAsync(c => c.Id == id && !c.IsArchived &&
-                    (hasGlobalAccess || c.Allocations.Any(a =>
-                        (a.GroupId.HasValue && accessibleIds.Contains(a.GroupId.Value)) ||
-                        (a.SectionId.HasValue && accessibleSections.Contains(a.SectionId.Value)) ||
-                        (a.CommitteeId.HasValue && accessibleCommittees.Contains(a.CommitteeId.Value)))));
+                    (hasGlobalAccess ||
+                     c.CreatedById == userId.Value ||
+                     c.Allocations.Any(a =>
+                         (a.GroupId.HasValue && accessibleIds.Contains(a.GroupId.Value)) ||
+                         (a.SectionId.HasValue && accessibleSections.Contains(a.SectionId.Value)) ||
+                         (a.CommitteeId.HasValue && accessibleCommittees.Contains(a.CommitteeId.Value))
+                     )
+                    )
+                );
 
             return contribution != null ? MapToResponse(contribution) : null;
         }
 
         // ============================================
-        // LIST
+        // LIST – MODIFIED for global roles
         // ============================================
 
         public async Task<(List<ContributionResponse> Data, int Total)> GetContributionsAsync(ContributionFilter filter)
         {
+            var userId = _currentUserService.GetUserId();
+            if (!userId.HasValue)
+                throw new UnauthorizedAccessException("User not authenticated");
+
+            var user = await _context.Users.FindAsync(userId.Value);
+            var userRole = user?.Role;
+
+            // Roles that have global access
+            var globalRoles = new[]
+            {
+                UserRole.SuperAdmin.ToString(),
+                UserRole.Admin.ToString(),
+                UserRole.Accountant.ToString(),
+                UserRole.Secretary.ToString(),
+                UserRole.ChurchAuth.ToString(),
+                UserRole.Minister.ToString(),
+                UserRole.Auditor.ToString()
+            };
+            var hasGlobalAccess = _groupAccess.HasGlobalAccess() || globalRoles.Contains(userRole);
+
             var accessibleIds = await _groupAccess.GetAccessibleGroupIdsAsync();
             var accessibleSections = await _groupAccess.GetAccessibleSectionIdsAsync();
             var accessibleCommittees = await _groupAccess.GetAccessibleCommitteeIdsAsync();
+
             var query = _context.Contributions
                 .Include(c => c.ContributionType)
                 .Include(c => c.Source)
@@ -532,18 +713,24 @@ namespace UCP.API.Services
                     .ThenInclude(a => a.Group)
                 .Include(c => c.Allocations).ThenInclude(a => a.Section)
                 .Include(c => c.Allocations).ThenInclude(a => a.Committee)
-                .Include(c => c.Allocations).ThenInclude(a => a.Section)
-                .Include(c => c.Allocations).ThenInclude(a => a.Committee)
                 .Include(c => c.ReceivedByUser)
                 .Include(c => c.ConfirmedByUser)
                 .Where(c => !c.IsArchived);
 
-            if (!_groupAccess.HasGlobalAccess())
-                query = query.Where(c => c.Allocations.Any(a =>
-                    (a.GroupId.HasValue && accessibleIds.Contains(a.GroupId.Value)) ||
-                    (a.SectionId.HasValue && accessibleSections.Contains(a.SectionId.Value)) ||
-                    (a.CommitteeId.HasValue && accessibleCommittees.Contains(a.CommitteeId.Value))));
+            // Global roles bypass entity access
+            if (!hasGlobalAccess)
+            {
+                query = query.Where(c =>
+                    c.CreatedById == userId.Value ||
+                    c.Allocations.Any(a =>
+                        (a.GroupId.HasValue && accessibleIds.Contains(a.GroupId.Value)) ||
+                        (a.SectionId.HasValue && accessibleSections.Contains(a.SectionId.Value)) ||
+                        (a.CommitteeId.HasValue && accessibleCommittees.Contains(a.CommitteeId.Value))
+                    )
+                );
+            }
 
+            // Apply additional filters
             if (filter.StartDate.HasValue)
             {
                 var startDateUtc = NormalizeUtc(filter.StartDate.Value);
@@ -576,11 +763,11 @@ namespace UCP.API.Services
             }
 
             if (filter.GroupId.HasValue)
-            {
                 query = query.Where(c => c.Allocations.Any(a => a.GroupId == filter.GroupId.Value));
-            }
+
             if (filter.SectionId.HasValue)
                 query = query.Where(c => c.Allocations.Any(a => a.SectionId == filter.SectionId.Value));
+
             if (filter.CommitteeId.HasValue)
                 query = query.Where(c => c.Allocations.Any(a => a.CommitteeId == filter.CommitteeId.Value));
 
@@ -609,8 +796,24 @@ namespace UCP.API.Services
 
         public async Task<ContributionDashboardStats> GetDashboardStatsAsync(string period)
         {
+            var userId = _currentUserService.GetUserId();
+            var user = userId.HasValue ? await _context.Users.FindAsync(userId.Value) : null;
+            var userRole = user?.Role;
+
+            // Roles that have global access
+            var globalRoles = new[]
+            {
+                UserRole.SuperAdmin.ToString(),
+                UserRole.Admin.ToString(),
+                UserRole.Accountant.ToString(),
+                UserRole.Secretary.ToString(),
+                UserRole.ChurchAuth.ToString(),
+                UserRole.Minister.ToString(),
+                UserRole.Auditor.ToString()
+            };
+            var hasGlobalAccess = _groupAccess.HasGlobalAccess() || globalRoles.Contains(userRole);
+
             var accessibleIds = await _groupAccess.GetAccessibleGroupIdsAsync();
-            var hasGlobalAccess = _groupAccess.HasGlobalAccess();
             var now = DateTime.UtcNow;
             var startDate = period.ToLower() switch
             {
@@ -672,14 +875,14 @@ namespace UCP.API.Services
         public async Task<List<ContributionTypeResponse>> GetContributionTypesAsync()
         {
             return await _context.ContributionTypes
-                .Where(t => t.IsActive)
                 .OrderBy(t => t.DisplayOrder)
                 .Select(t => new ContributionTypeResponse
                 {
                     Id = t.Id,
                     Code = t.Code,
                     Name = t.Name,
-                    Description = t.Description
+                    Description = t.Description,
+                    IsActive = t.IsActive
                 })
                 .ToListAsync();
         }
@@ -687,13 +890,13 @@ namespace UCP.API.Services
         public async Task<List<ContributionSourceResponse>> GetContributionSourcesAsync()
         {
             return await _context.ContributionSources
-                .Where(s => s.IsActive)
                 .OrderBy(s => s.Name)
                 .Select(s => new ContributionSourceResponse
                 {
                     Id = s.Id,
                     Name = s.Name,
-                    Description = s.Description
+                    Description = s.Description,
+                    IsActive = s.IsActive
                 })
                 .ToListAsync();
         }
@@ -716,7 +919,7 @@ namespace UCP.API.Services
         }
 
         // ============================================
-        // ATTACHMENT METHODS (FULLY CONFIGURABLE)
+        // ATTACHMENT METHODS
         // ============================================
 
         public async Task<List<ContributionAttachmentResponse>> UploadAttachmentsAsync(Guid contributionId, List<IFormFile> files, Guid userId)
@@ -862,13 +1065,15 @@ namespace UCP.API.Services
                     Id = c.ContributionType.Id,
                     Code = c.ContributionType.Code,
                     Name = c.ContributionType.Name,
-                    Description = c.ContributionType.Description
+                    Description = c.ContributionType.Description,
+                    IsActive = c.ContributionType.IsActive
                 } : null,
                 Source = c.Source != null ? new ContributionSourceResponse
                 {
                     Id = c.Source.Id,
                     Name = c.Source.Name,
-                    Description = c.Source.Description
+                    Description = c.Source.Description,
+                    IsActive = c.Source.IsActive
                 } : null,
                 Amount = c.Amount,
                 ContributionDate = c.ContributionDate,
