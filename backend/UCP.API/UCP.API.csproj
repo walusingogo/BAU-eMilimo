@@ -32,4 +32,11 @@
     <ProjectReference Include="..\UCP.Infrastructure\UCP.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\frontend\web\public\images\ucz-logo.png"
+             Link="wwwroot\images\ucz-logo.png"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

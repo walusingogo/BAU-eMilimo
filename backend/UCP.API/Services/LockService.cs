@@ -81,9 +81,11 @@ namespace UCP.API.Services
             var expiredUserLocks = await _context.Set<UserLck>()
                 .Where(l => l.ExpiresAt.HasValue && l.ExpiresAt.Value <= DateTime.UtcNow)
                 .ToListAsync();
+            var expiredAssetLocks = await _context.Set<AssetLck>().Where(l=>l.ExpiresAt.HasValue&&l.ExpiresAt<=DateTime.UtcNow).ToListAsync();
 
             _context.RemoveRange(expiredRequisitionLocks);
             _context.RemoveRange(expiredUserLocks);
+            _context.RemoveRange(expiredAssetLocks);
             await _context.SaveChangesAsync();
         }
 
@@ -102,6 +104,8 @@ namespace UCP.API.Services
 
             if (typeof(T) == typeof(UserLck))
                 return new UserLck();
+            if (typeof(T) == typeof(AssetLck))
+                return new AssetLck();
 
             throw new InvalidOperationException($"Unsupported lock type: {typeof(T).FullName}");
         }

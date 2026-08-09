@@ -25,13 +25,15 @@ namespace UCP.API.Controllers
         private readonly IConfiguration _config;
         private readonly ICurrentUserService _currentUserService;
         private readonly SecuritySettings _security;
+        private readonly IEmailService _emailService;
 
-        public AuthController(AppDbContext context, IConfiguration config, ICurrentUserService currentUserService, IOptions<SecuritySettings> security)
+        public AuthController(AppDbContext context, IConfiguration config, ICurrentUserService currentUserService, IOptions<SecuritySettings> security, IEmailService emailService)
         {
             _context = context;
             _config = config;
             _currentUserService = currentUserService;
             _security = security.Value;
+            _emailService = emailService;
         }
 
         private string GetJwtSecret()
@@ -240,9 +242,13 @@ namespace UCP.API.Controllers
         [HttpPost("forgot-password")]
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDto dto)
         {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
+            var normalizedEmail = dto.Email?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(normalizedEmail))
+                return BadRequest(new { Message = "Email address is required." });
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
             if (user == null)
-                return Ok(new { Message = "If an account exists, a reset link will be sent" });
+                return NotFound(new { Message = "No account was found with this email address." });
 
             var secret = GetJwtSecret();
             var key = Encoding.ASCII.GetBytes(secret);
@@ -260,11 +266,30 @@ namespace UCP.API.Controllers
             var token = tokenHandler.CreateToken(tokenDescriptor);
             var resetToken = tokenHandler.WriteToken(token);
 
-            return Ok(new
-            {
-                Message = "Password reset link sent to your email",
-                Token = resetToken
-            });
+            var configuredBaseUrl = await _context.SystemConfigs.AsNoTracking()
+                .Where(x => !x.IsArchived && x.ConfigKey.ToLower() == "frontend_base_url")
+                .Select(x => x.ConfigValue)
+                .FirstOrDefaultAsync();
+            var frontendUrl = (configuredBaseUrl ?? _config["Frontend:Url"] ?? "http://localhost:4200").Trim().TrimEnd('/');
+            var resetLink = $"{frontendUrl}/reset-password?token={Uri.EscapeDataString(resetToken)}";
+
+            // The reset token is only ever delivered via email — it must never
+            // be returned in the API response, or anyone who can call this
+            // endpoint with a known email address could reset that user's
+            // password themselves.
+            await _emailService.SendPasswordResetAsync(user.Email, $"{user.FirstName} {user.LastName}", resetLink);
+
+            return Ok(new { Message = "Password reset link sent to your email." });
+        }
+
+        [HttpGet("validate-email")]
+        public async Task<ActionResult<bool>> ValidateEmail([FromQuery] string email)
+        {
+            var normalizedEmail = email?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(normalizedEmail))
+                return BadRequest(new { Message = "Email address is required." });
+
+            return Ok(await _context.Users.AnyAsync(u => u.Email.ToLower() == normalizedEmail));
         }
 
         [HttpPost("reset-password")]

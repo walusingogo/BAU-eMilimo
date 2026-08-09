@@ -20,6 +20,8 @@ namespace UCP.API.Services
         private readonly IConfiguration _configuration;
         private readonly IGroupAccessService _groupAccess;
         private readonly ICurrentUserService _currentUserService;
+        private readonly IEmailService _emailService;
+        private readonly ISystemLogWriter _logWriter;
 
         public ContributionService(
             AppDbContext context,
@@ -27,7 +29,9 @@ namespace UCP.API.Services
             IWebHostEnvironment webHostEnvironment,
             IConfiguration configuration,
             IGroupAccessService groupAccess,
-            ICurrentUserService currentUserService)
+            ICurrentUserService currentUserService,
+            IEmailService emailService,
+            ISystemLogWriter logWriter)
         {
             _context = context;
             _logger = logger;
@@ -35,6 +39,50 @@ namespace UCP.API.Services
             _configuration = configuration;
             _groupAccess = groupAccess;
             _currentUserService = currentUserService;
+            _emailService = emailService;
+            _logWriter = logWriter;
+        }
+
+        /// <summary>
+        /// Sends the contribution-status-changed notification to the creator
+        /// and writes a user-friendly process log entry. Every caller of this
+        /// method has already moved the contribution to a non-DRAFT status, so
+        /// this never fires while a contribution remains in DRAFT. Never
+        /// throws: a notification/logging failure must not undo or fail the
+        /// business transaction that already committed.
+        /// </summary>
+        private async Task NotifyContributionStatusChangedAsync(Contribution contribution, string actorName, string? note = null)
+        {
+            try
+            {
+                if (!contribution.CreatedById.HasValue)
+                    return;
+
+                var creator = await _context.Users.FindAsync(contribution.CreatedById.Value);
+                if (creator == null || string.IsNullOrWhiteSpace(creator.Email))
+                    return;
+
+                await _emailService.SendContributionStatusChangedAsync(
+                    creator.Email,
+                    $"{creator.FirstName} {creator.LastName}",
+                    contribution.ContributionNumber,
+                    contribution.Status,
+                    note);
+
+                await _logWriter.WriteAsync(new SystemLog
+                {
+                    Level = "Information",
+                    Category = "Process",
+                    Process = "Contributions",
+                    Action = "StatusChange",
+                    UserId = contribution.UpdatedById,
+                    Message = $"Contribution {contribution.ContributionNumber} status changed to {contribution.Status} by {actorName}."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send contribution status-change notification for {ContributionId}", contribution.Id);
+            }
         }
 
         // ============================================
@@ -126,10 +174,15 @@ namespace UCP.API.Services
 
         public async Task<ContributionResponse> CreateContributionAsync(CreateContributionRequest request, Guid userId)
         {
-            var totalAllocated = request.Allocations.Sum(a => a.AllocatedAmount);
-            if (Math.Abs(totalAllocated - request.Amount) > 0.01m)
+            var contributionAmount = decimal.Round(request.Amount, 2, MidpointRounding.AwayFromZero);
+            var totalAllocated = decimal.Round(
+                request.Allocations.Sum(a => decimal.Round(a.AllocatedAmount, 2, MidpointRounding.AwayFromZero)),
+                2,
+                MidpointRounding.AwayFromZero);
+            if (totalAllocated != contributionAmount)
             {
-                throw new InvalidOperationException("Total allocated amount must equal contribution amount");
+                throw new InvalidOperationException(
+                    $"Total allocated amount ({totalAllocated:N2}) must equal contribution amount ({contributionAmount:N2}).");
             }
 
             foreach (var alloc in request.Allocations)
@@ -148,6 +201,10 @@ namespace UCP.API.Services
             if (source == null)
                 throw new KeyNotFoundException($"Source with ID {request.SourceId} not found");
 
+            await using var transaction = await _context.Database.BeginTransactionAsync();
+            var numberingLock = $"contribution-number-{DateTime.UtcNow.Year}";
+            await _context.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock(hashtext({numberingLock}))");
             var contributionNumber = await GenerateContributionNumber();
 
             var contribution = new Contribution
@@ -169,8 +226,6 @@ namespace UCP.API.Services
                 CreatedDate = DateTime.UtcNow,
                 Version = 1
             };
-
-            await using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
@@ -332,6 +387,11 @@ namespace UCP.API.Services
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
+                var confirmer = await _context.Users.FindAsync(userId);
+                await NotifyContributionStatusChangedAsync(
+                    contribution,
+                    confirmer != null ? $"{confirmer.FirstName} {confirmer.LastName}" : "an administrator");
+
                 return await GetContributionByIdAsync(contributionId)
                     ?? throw new Exception("Failed to retrieve confirmed contribution");
             }
@@ -366,6 +426,12 @@ namespace UCP.API.Services
             _context.Contributions.Update(contribution);
             await _context.SaveChangesAsync();
 
+            var rejector = await _context.Users.FindAsync(userId);
+            await NotifyContributionStatusChangedAsync(
+                contribution,
+                rejector != null ? $"{rejector.FirstName} {rejector.LastName}" : "an administrator",
+                dto.Reason);
+
             return await GetContributionByIdAsync(contributionId)
                 ?? throw new Exception("Failed to retrieve rejected contribution");
         }
@@ -383,6 +449,11 @@ namespace UCP.API.Services
             if (contribution == null)
                 throw new KeyNotFoundException("Contribution not found");
 
+            // DRAFT contributions are private: only the creator may submit their
+            // own draft, regardless of role.
+            if (contribution.CreatedById != userId)
+                throw new KeyNotFoundException("Contribution not found");
+
             if (contribution.Status != ContributionStatus.DRAFT.ToString())
                 throw new InvalidOperationException("Only draft contributions can be submitted");
 
@@ -392,6 +463,12 @@ namespace UCP.API.Services
             contribution.Version++;
 
             await _context.SaveChangesAsync();
+
+            var submitter = await _context.Users.FindAsync(userId);
+            await NotifyContributionStatusChangedAsync(
+                contribution,
+                submitter != null ? $"{submitter.FirstName} {submitter.LastName}" : "the creator",
+                "Your contribution has been submitted for confirmation.");
 
             return await GetContributionByIdAsync(contributionId)
                 ?? throw new Exception("Failed to retrieve submitted contribution");
@@ -404,10 +481,17 @@ namespace UCP.API.Services
         public async Task<ContributionResponse> UpdateContributionAsync(Guid contributionId, UpdateContributionDto dto, Guid userId)
         {
             var contribution = await _context.Contributions
-                .Include(c => c.Allocations)
                 .FirstOrDefaultAsync(c => c.Id == contributionId && !c.IsArchived);
 
             if (contribution == null)
+                throw new KeyNotFoundException("Contribution not found");
+
+            // DRAFT contributions are private working records: only the creator
+            // may edit their own draft, regardless of role (including Admin/
+            // SuperAdmin). Return NotFound rather than Unauthorized so another
+            // user's draft isn't confirmed to exist. This must be checked before
+            // anything else in the method.
+            if (contribution.CreatedById != userId)
                 throw new KeyNotFoundException("Contribution not found");
 
             if (contribution.Status != ContributionStatus.DRAFT.ToString())
@@ -506,35 +590,6 @@ namespace UCP.API.Services
                             throw new KeyNotFoundException("One or more selected entities were not found or are inactive");
                     }
 
-                    var existingAllocations = contribution.Allocations.ToList();
-                    if (existingAllocations.Count > 0)
-                    {
-                        _context.ContributionAllocations.RemoveRange(existingAllocations);
-                        contribution.Allocations.Clear();
-                    }
-
-                    foreach (var allocationDto in dto.Allocations)
-                    {
-                        var percentage = allocationDto.PercentageAllocation
-                            ?? (allocationDto.AllocatedAmount / effectiveAmount * 100);
-
-                        contribution.Allocations.Add(new ContributionAllocation
-                        {
-                            Id = Guid.NewGuid(),
-                            ContributionId = contribution.Id,
-                            GroupId = allocationDto.GroupId,
-                            SectionId = allocationDto.SectionId,
-                            CommitteeId = allocationDto.CommitteeId,
-                            AllocatedAmount = allocationDto.AllocatedAmount,
-                            PercentageAllocation = percentage,
-                            IsPrimary = allocationDto.IsPrimary,
-                            Notes = allocationDto.Notes,
-                            CreatedById = userId,
-                            CreatedDate = DateTime.UtcNow,
-                            Version = 1
-                        });
-                    }
-
                     contribution.IsSplit = dto.Allocations.Count > 1;
                 }
                 else if (dto.IsSplit.HasValue)
@@ -577,7 +632,41 @@ namespace UCP.API.Services
                 contribution.UpdatedDate = DateTime.UtcNow;
                 contribution.Version++;
 
+                // Claim the parent contribution version before replacing its child
+                // allocation rows. This keeps optimistic concurrency on the draft
+                // itself from being invalidated by database-side allocation handling.
                 await _context.SaveChangesAsync();
+
+                if (dto.Allocations != null)
+                {
+                    await _context.ContributionAllocations
+                        .Where(a => a.ContributionId == contribution.Id)
+                        .ExecuteDeleteAsync();
+
+                    var replacementAllocations = dto.Allocations
+                        .Select(allocationDto => new ContributionAllocation
+                        {
+                            Id = Guid.NewGuid(),
+                            ContributionId = contribution.Id,
+                            GroupId = allocationDto.GroupId,
+                            SectionId = allocationDto.SectionId,
+                            CommitteeId = allocationDto.CommitteeId,
+                            AllocatedAmount = allocationDto.AllocatedAmount,
+                            PercentageAllocation = allocationDto.PercentageAllocation
+                                ?? (allocationDto.AllocatedAmount / effectiveAmount * 100),
+                            IsPrimary = allocationDto.IsPrimary,
+                            Notes = allocationDto.Notes,
+                            CreatedById = userId,
+                            CreatedDate = DateTime.UtcNow,
+                            Version = 1
+                        })
+                        .ToList();
+
+                    _context.ContributionAllocations.AddRange(replacementAllocations);
+
+                    await _context.SaveChangesAsync();
+                }
+
                 await transaction.CommitAsync();
             }
             catch
@@ -600,6 +689,11 @@ namespace UCP.API.Services
                 .FirstOrDefaultAsync(c => c.Id == contributionId);
 
             if (contribution == null)
+                throw new KeyNotFoundException("Contribution not found");
+
+            // DRAFT contributions are private: only the creator may archive/
+            // delete their own draft.
+            if (contribution.CreatedById != userId)
                 throw new KeyNotFoundException("Contribution not found");
 
             if (contribution.Status != ContributionStatus.DRAFT.ToString())
@@ -663,16 +757,28 @@ namespace UCP.API.Services
                 .Include(c => c.Attachments)
                 .Include(c => c.BankAccount)
                 .FirstOrDefaultAsync(c => c.Id == id && !c.IsArchived &&
-                    (hasGlobalAccess ||
-                     c.CreatedById == userId.Value ||
-                     c.Allocations.Any(a =>
-                         (a.GroupId.HasValue && accessibleIds.Contains(a.GroupId.Value)) ||
-                         (a.SectionId.HasValue && accessibleSections.Contains(a.SectionId.Value)) ||
-                         (a.CommitteeId.HasValue && accessibleCommittees.Contains(a.CommitteeId.Value))
-                     )
+                    (
+                        // DRAFT contributions are private working records: only
+                        // the creator may see them, regardless of role or
+                        // group/section/committee access. This check overrides
+                        // hasGlobalAccess for DRAFT records specifically.
+                        (c.Status == ContributionStatus.DRAFT.ToString() && c.CreatedById == userId.Value) ||
+                        (c.Status != ContributionStatus.DRAFT.ToString() &&
+                         (hasGlobalAccess ||
+                          c.CreatedById == userId.Value ||
+                          c.Allocations.Any(a =>
+                              (a.GroupId.HasValue && accessibleIds.Contains(a.GroupId.Value)) ||
+                              (a.SectionId.HasValue && accessibleSections.Contains(a.SectionId.Value)) ||
+                              (a.CommitteeId.HasValue && accessibleCommittees.Contains(a.CommitteeId.Value))
+                          )
+                         )
+                        )
                     )
                 );
 
+            // Return null (404 in the controller) rather than throwing Unauthorized
+            // for a DRAFT owned by someone else, so the record's existence isn't
+            // leaked to users who aren't its creator.
             return contribution != null ? MapToResponse(contribution) : null;
         }
 
@@ -729,6 +835,11 @@ namespace UCP.API.Services
                     )
                 );
             }
+
+            // DRAFT contributions are private: hide anyone else's drafts from
+            // lists/search entirely, even for globally-accessible roles.
+            query = query.Where(c =>
+                c.Status != ContributionStatus.DRAFT.ToString() || c.CreatedById == userId.Value);
 
             // Apply additional filters
             if (filter.StartDate.HasValue)
@@ -1027,6 +1138,31 @@ namespace UCP.API.Services
 
             _context.ContributionAtms.Remove(attachment);
             await _context.SaveChangesAsync();
+        }
+
+        // ============================================
+        // NEW: GET NEXT CONTRIBUTION NUMBER
+        // ============================================
+
+        public async Task<string> GetNextContributionNumberAsync()
+        {
+            var year = DateTime.UtcNow.Year;
+            var last = await _context.Contributions
+                .Where(c => c.ContributionNumber.StartsWith($"CONT-{year}-"))
+                .OrderByDescending(c => c.ContributionNumber)
+                .FirstOrDefaultAsync();
+
+            int sequence = 1;
+            if (last != null)
+            {
+                var parts = last.ContributionNumber.Split('-');
+                if (parts.Length == 3 && int.TryParse(parts[2], out int lastSeq))
+                {
+                    sequence = lastSeq + 1;
+                }
+            }
+
+            return $"CONT-{year}-{sequence:D6}";
         }
 
         // ============================================

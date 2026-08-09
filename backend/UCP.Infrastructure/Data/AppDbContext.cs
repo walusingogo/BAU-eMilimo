@@ -1,6 +1,8 @@
 // backend/UCP.Infrastructure/Data/AppDbContext.cs
 using UCP.Core.Entities.Companions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using System.Text.Json;
 using UCP.Core.Entities;
 
 namespace UCP.Infrastructure.Data
@@ -18,10 +20,21 @@ namespace UCP.Infrastructure.Data
         public DbSet<ContributionType> ContributionTypes { get; set; }
         public DbSet<ContributionSource> ContributionSources { get; set; }
         public DbSet<Contribution> Contributions { get; set; }
+        public DbSet<ContributionAud> ContributionAudits { get; set; }
+        public DbSet<Asset> Assets { get; set; }
+        public DbSet<AssetCategory> AssetCategories { get; set; }
+        public DbSet<AssetCheckout> AssetCheckouts { get; set; }
+        public DbSet<AssetMovement> AssetMovements { get; set; }
+        public DbSet<AssetAtm> AssetAtms { get; set; }
+        public DbSet<AssetCheckoutAtm> AssetCheckoutAtms { get; set; }
+        public DbSet<AssetLck> AssetLcks { get; set; }
+        public DbSet<AssetAud> AssetAudits { get; set; }
+        public DbSet<RequisitionAud> RequisitionAudits { get; set; }
         public DbSet<ContributionAllocation> ContributionAllocations { get; set; }
         public DbSet<BankAccount> BankAccounts { get; set; }
         public DbSet<FundBalance> FundBalances { get; set; }
         public DbSet<SystemConfig> SystemConfigs { get; set; }
+        public DbSet<AssetDriver> AssetDrivers { get; set; }
         public DbSet<FundTransaction> FundTransactions { get; set; }
         public DbSet<ContributionAtm> ContributionAtms { get; set; }
         public DbSet<ContributionLck> ContributionLcks { get; set; }
@@ -31,6 +44,9 @@ namespace UCP.Infrastructure.Data
         public DbSet<SystemLog> Logs { get; set; }
         public DbSet<RequisitionLck> RequisitionLcks { get; set; }
         public DbSet<UserLck> UserLcks { get; set; }
+        public DbSet<RolePermission> RolePermissions { get; set; }
+        public DbSet<SmtpSetting> SmtpSettings { get; set; }
+        public DbSet<EmailLog> EmailLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -218,6 +234,26 @@ namespace UCP.Infrastructure.Data
                 entity.Property(e => e.Version).IsConcurrencyToken();
             });
 
+            modelBuilder.Entity<RolePermission>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.Role).IsUnique();
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            modelBuilder.Entity<SmtpSetting>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            modelBuilder.Entity<EmailLog>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.SentAtUtc);
+                entity.HasIndex(e => e.Status);
+            });
+
             modelBuilder.Entity<SystemLog>(entity =>
             {
                 entity.HasKey(e => e.Id);
@@ -271,6 +307,29 @@ namespace UCP.Infrastructure.Data
                     .WithOne(a => a.Contribution)
                     .HasForeignKey(a => a.ContributionId)
                     .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<ContributionAud>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => new { e.ContributionId, e.PerformedAtUtc });
+                entity.Property(e => e.ChangesJson).HasColumnType("text");
+            });
+
+            modelBuilder.Entity<AssetCategory>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.Code).IsUnique(); entity.Property(x=>x.Version).IsConcurrencyToken(); });
+            modelBuilder.Entity<Asset>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.AssetNumber).IsUnique(); entity.Property(x=>x.Version).IsConcurrencyToken(); entity.HasOne(x=>x.AssetCategory).WithMany().HasForeignKey(x=>x.AssetCategoryId).OnDelete(DeleteBehavior.Restrict); });
+            modelBuilder.Entity<AssetCheckout>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.RequestNumber).IsUnique(); entity.HasIndex(x=>new{x.AssetId,x.Status}); entity.Property(x=>x.Version).IsConcurrencyToken(); entity.HasOne(x=>x.Asset).WithMany().HasForeignKey(x=>x.AssetId).OnDelete(DeleteBehavior.Restrict); });
+            modelBuilder.Entity<AssetMovement>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>new{x.AssetId,x.PerformedAtUtc}); });
+            modelBuilder.Entity<AssetAtm>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.EntityId); entity.HasOne(x=>x.Asset).WithMany().HasForeignKey(x=>x.EntityId).OnDelete(DeleteBehavior.Cascade); });
+            modelBuilder.Entity<AssetCheckoutAtm>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.EntityId); entity.HasOne(x=>x.AssetCheckout).WithMany().HasForeignKey(x=>x.EntityId).OnDelete(DeleteBehavior.Cascade); });
+            modelBuilder.Entity<AssetLck>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.EntityId).IsUnique(); entity.Property(x=>x.Version).IsConcurrencyToken(); entity.HasOne(x=>x.Asset).WithMany().HasForeignKey(x=>x.EntityId).OnDelete(DeleteBehavior.Cascade); });
+            modelBuilder.Entity<AssetAud>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>new{x.AssetId,x.PerformedAtUtc}); entity.Property(x=>x.ChangesJson).HasColumnType("text"); });
+
+            modelBuilder.Entity<RequisitionAud>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => new { e.RequisitionId, e.PerformedAtUtc });
+                entity.Property(e => e.ChangesJson).HasColumnType("text");
             });
 
             // ---------- CONTRIBUTION ALLOCATION ----------
@@ -395,6 +454,89 @@ namespace UCP.Infrastructure.Data
                 entity.HasIndex(e => e.EntityId).IsUnique();
                 entity.Property(e => e.Version).IsConcurrencyToken();
             });
+        }
+
+        public override int SaveChanges(bool acceptAllChangesOnSuccess)
+        {
+            AddProcessAuditEntries();
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+
+        public override Task<int> SaveChangesAsync(
+            bool acceptAllChangesOnSuccess,
+            CancellationToken cancellationToken = default)
+        {
+            AddProcessAuditEntries();
+            return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+
+        private void AddProcessAuditEntries()
+        {
+            ChangeTracker.DetectChanges();
+
+            foreach (var entry in ChangeTracker.Entries<Contribution>()
+                         .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+                         .ToList())
+            {
+                ContributionAudits.Add(new ContributionAud
+                {
+                    Id = Guid.NewGuid(),
+                    ContributionId = entry.Entity.Id,
+                    Action = AuditAction(entry),
+                    ChangesJson = SerializeChanges(entry),
+                    PerformedById = entry.Entity.UpdatedById ?? entry.Entity.CreatedById,
+                    PerformedAtUtc = DateTime.UtcNow
+                });
+            }
+
+            foreach (var entry in ChangeTracker.Entries<Requisition>()
+                         .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+                         .ToList())
+            {
+                RequisitionAudits.Add(new RequisitionAud
+                {
+                    Id = Guid.NewGuid(),
+                    RequisitionId = entry.Entity.Id,
+                    Action = AuditAction(entry),
+                    ChangesJson = SerializeChanges(entry),
+                    PerformedById = entry.Entity.UpdatedById ?? entry.Entity.CreatedById ?? entry.Entity.RequisitorId,
+                    PerformedAtUtc = DateTime.UtcNow
+                });
+            }
+
+            foreach (var entry in ChangeTracker.Entries<Asset>()
+                         .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted).ToList())
+                AssetAudits.Add(new AssetAud { Id=Guid.NewGuid(),AssetId=entry.Entity.Id,RecordType="ASSET",Action=AuditAction(entry),ChangesJson=SerializeChanges(entry),PerformedById=entry.Entity.UpdatedById??entry.Entity.CreatedById,PerformedAtUtc=DateTime.UtcNow });
+
+            foreach (var entry in ChangeTracker.Entries<AssetCheckout>()
+                         .Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted).ToList())
+                AssetAudits.Add(new AssetAud { Id=Guid.NewGuid(),AssetId=entry.Entity.AssetId,AssetCheckoutId=entry.Entity.Id,RecordType="CHECKOUT",Action=AuditAction(entry),ChangesJson=SerializeChanges(entry),PerformedById=entry.Entity.UpdatedById??entry.Entity.CreatedById??entry.Entity.RequestedById,PerformedAtUtc=DateTime.UtcNow });
+        }
+
+        private static string AuditAction<TEntity>(EntityEntry<TEntity> entry) where TEntity : class
+        {
+            if (entry.State == EntityState.Added) return "CREATED";
+            if (entry.State == EntityState.Deleted) return "DELETED";
+
+            var status = entry.Properties.FirstOrDefault(p => p.Metadata.Name == "Status");
+            return status?.IsModified == true
+                ? $"STATUS_{status.CurrentValue?.ToString()?.ToUpperInvariant()}"
+                : "UPDATED";
+        }
+
+        private static string SerializeChanges<TEntity>(EntityEntry<TEntity> entry) where TEntity : class
+        {
+            var changes = entry.Properties
+                .Where(p => entry.State != EntityState.Modified || p.IsModified)
+                .ToDictionary(
+                    p => p.Metadata.Name,
+                    p => new
+                    {
+                        Before = entry.State == EntityState.Added ? null : p.OriginalValue,
+                        After = entry.State == EntityState.Deleted ? null : p.CurrentValue
+                    });
+
+            return JsonSerializer.Serialize(changes);
         }
     }
 }

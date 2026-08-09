@@ -13,7 +13,6 @@ namespace UCP.API.Controllers;
 public class RolePermissionsController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private const string Prefix = "RolePermissions:";
     private static readonly object[] Processes =
     {
         new { Key="requisitions.view", Name="View Requisitions", Module="Requisitions" }, new { Key="requisitions.initiate", Name="Requisition Initiator", Module="Requisitions" },
@@ -21,7 +20,13 @@ public class RolePermissionsController : ControllerBase
         new { Key="contributions.view", Name="View Contributions", Module="Contributions" }, new { Key="contributions.initiate", Name="Contribution Initiator", Module="Contributions" },
         new { Key="contributions.confirm", Name="Contribution Confirmation", Module="Contributions" }, new { Key="groups.manage", Name="Groups Management", Module="Administration" },
         new { Key="sections.manage", Name="Sections Management", Module="Administration" }, new { Key="committees.manage", Name="Committees Management", Module="Administration" },
-        new { Key="users.manage", Name="User Management", Module="Administration" }, new { Key="reports.view", Name="Reports", Module="Reports" }
+        new { Key="users.manage", Name="User Management", Module="Administration" }, new { Key="reports.view", Name="Reports", Module="Reports" },
+        new { Key="assets.view", Name="View Asset Register", Module="Assets & Fleet" },
+        new { Key="assets.request", Name="Request Asset Checkout", Module="Assets & Fleet" },
+        new { Key="assets.manage", Name="Register and Maintain Assets", Module="Assets & Fleet" },
+        new { Key="assets.approve", Name="Review Asset Checkout Requests", Module="Assets & Fleet" },
+        new { Key="assets.reports", Name="Asset and Fleet Reports", Module="Assets & Fleet" }
+        ,new { Key="settings.manage", Name="System Settings", Module="Administration" }
     };
 
     public RolePermissionsController(AppDbContext context) => _context = context;
@@ -29,8 +34,8 @@ public class RolePermissionsController : ControllerBase
     [HttpGet, Authorize(Roles="SuperAdmin")]
     public async Task<IActionResult> GetMatrix()
     {
-        var stored = await _context.SystemConfigs.Where(x => x.ConfigKey.StartsWith(Prefix) && !x.IsArchived).ToDictionaryAsync(x => x.ConfigKey, x => x.ConfigValue);
-        var roles = Enum.GetNames<UserRole>().Select(role => new { role, permissions = stored.TryGetValue(Prefix + role, out var json) ? Read(json) : Defaults(role) });
+        var stored = await _context.RolePermissions.ToDictionaryAsync(x => x.Role, x => x.PermissionsJson);
+        var roles = Enum.GetNames<UserRole>().Select(role => new { role, permissions = stored.TryGetValue(role, out var json) ? Read(json) : Defaults(role) });
         return Ok(new { processes = Processes, roles });
     }
 
@@ -45,10 +50,9 @@ public class RolePermissionsController : ControllerBase
         if (parsed == UserRole.SuperAdmin) return BadRequest(new { Message="Super Admin permissions cannot be restricted." });
         var allowed = Processes.Select(p => (string)p.GetType().GetProperty("Key")!.GetValue(p)!).ToHashSet();
         var permissions = request.Permissions.Where(allowed.Contains).Distinct().Order().ToArray();
-        var key = Prefix + parsed;
-        var config = await _context.SystemConfigs.FirstOrDefaultAsync(x => x.ConfigKey == key);
-        if (config == null) { config = new SystemConfig { Id=Guid.NewGuid(), ConfigKey=key, Description=$"Process permissions assigned to {parsed}" }; _context.SystemConfigs.Add(config); }
-        config.ConfigValue = JsonSerializer.Serialize(permissions); config.UpdatedDate = DateTime.UtcNow; config.Version++;
+        var config = await _context.RolePermissions.FirstOrDefaultAsync(x => x.Role == parsed.ToString());
+        if (config == null) { config = new RolePermission { Id=Guid.NewGuid(), Role=parsed.ToString(), CreatedDate=DateTime.UtcNow }; _context.RolePermissions.Add(config); }
+        config.PermissionsJson = JsonSerializer.Serialize(permissions); config.UpdatedDate = DateTime.UtcNow; config.Version++;
         await _context.SaveChangesAsync();
         return Ok(new { role=parsed.ToString(), permissions });
     }

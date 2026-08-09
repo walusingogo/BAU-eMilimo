@@ -14,3 +14,9 @@ C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\obj\Debug\ne
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\obj\Debug\net8.0\UCP.Infrastructure.pdb
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\obj\Debug\net8.0\UCP.Infrastructure.genruntimeconfig.cache
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\obj\Debug\net8.0\ref\UCP.Infrastructure.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build\Debug\net8.0\UCP.Infrastructure.deps.json
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build\Debug\net8.0\UCP.Infrastructure.runtimeconfig.json
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build\Debug\net8.0\UCP.Infrastructure.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build\Debug\net8.0\UCP.Infrastructure.pdb
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build\Debug\net8.0\UCP.Core.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build\Debug\net8.0\UCP.Core.pdb

@@ -604,6 +604,22 @@ namespace UCP.Infrastructure.SeedData
                 Console.WriteLine($"Added {configs.Length} system configs.");
             }
 
+            if (!await context.SystemConfigs.AnyAsync(x => x.ConfigKey == "frontend_base_url"))
+            {
+                context.SystemConfigs.Add(new SystemConfig
+                {
+                    Id = Guid.NewGuid(),
+                    ConfigKey = "frontend_base_url",
+                    ConfigValue = "http://localhost:4200",
+                    Description = "Public frontend base URL used for password reset links and other email links",
+                    CreatedDate = DateTime.UtcNow,
+                    UpdatedDate = DateTime.UtcNow,
+                    LastProcessedTimeStamp = DateTime.UtcNow,
+                    Version = 1
+                });
+                await context.SaveChangesAsync();
+            }
+
             // ============================================
             // CREATE CONTRIBUTION TYPES IF MISSING
             // ============================================

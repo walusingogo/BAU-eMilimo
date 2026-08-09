@@ -19,14 +19,20 @@ namespace UCP.API.Services
         private readonly IWebHostEnvironment _webHostEnvironment;
         private readonly ILogger<RequisitionService> _logger;
         private readonly IGroupAccessService _groupAccess;
+        private readonly IEmailService _emailService;
+        private readonly ISystemLogWriter _logWriter;
 
         public RequisitionService(
             AppDbContext context,
             IConfiguration configuration,
             IWebHostEnvironment webHostEnvironment,
             ILogger<RequisitionService> logger,
-            IGroupAccessService groupAccess)
+            IGroupAccessService groupAccess,
+            IEmailService emailService,
+            ISystemLogWriter logWriter)
         {
+            _emailService = emailService;
+            _logWriter = logWriter;
             _context = context;
             _configuration = configuration;
             _webHostEnvironment = webHostEnvironment;
@@ -208,11 +214,19 @@ namespace UCP.API.Services
             if (requisition == null)
                 throw new KeyNotFoundException("Requisition not found.");
 
+            // DRAFT requisitions are private working records: only the creator
+            // may see them, regardless of role. Return NotFound (not Unauthorized)
+            // so the record's existence isn't leaked to other users. This check
+            // takes priority over the normal role/entity-access checks below.
+            if (requisition.Status == RequisitionStatus.DRAFT.ToString() && requisition.RequisitorId != userId)
+                throw new KeyNotFoundException("Requisition not found.");
+
             var user = await _context.Users.FindAsync(userId);
             if (user == null)
                 throw new UnauthorizedAccessException("User not found.");
 
-            if (user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
+            if (requisition.RequisitorId != userId &&
+                user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
             {
                 if (!await _groupAccess.CanAccessEntityAsync(requisition.GroupId, requisition.SectionId, requisition.CommitteeId))
                     throw new UnauthorizedAccessException("Access denied.");
@@ -248,6 +262,12 @@ namespace UCP.API.Services
                     (r.SectionId.HasValue && sections.Contains(r.SectionId.Value)) ||
                     (r.CommitteeId.HasValue && committees.Contains(r.CommitteeId.Value)));
             }
+
+            // DRAFT requisitions are private: hide anyone else's drafts from lists/
+            // search entirely, even for SuperAdmin/Admin and even if the role or
+            // group/section/committee access above would otherwise include them.
+            query = query.Where(r =>
+                r.Status != RequisitionStatus.DRAFT.ToString() || r.RequisitorId == userId);
 
             if (!string.IsNullOrWhiteSpace(filter.Status))
                 query = query.Where(r => r.Status == filter.Status);
@@ -288,7 +308,6 @@ namespace UCP.API.Services
         public async Task<Requisition> UpdateRequisitionAsync(Guid id, UpdateRequisitionDto dto, Guid userId)
         {
             var requisition = await _context.Requisitions
-                .Include(r => r.Items)
                 .FirstOrDefaultAsync(r => r.Id == id && !r.IsArchived);
 
             if (requisition == null)
@@ -308,15 +327,20 @@ namespace UCP.API.Services
             if (user == null)
                 throw new UnauthorizedAccessException("User not found");
 
-            bool isRequisitor = requisition.RequisitorId == userId;
-            bool isAdmin = user.Role == UserRole.SuperAdmin.ToString() || user.Role == UserRole.Admin.ToString();
-            if (!isRequisitor && !isAdmin)
-            {
-                throw new UnauthorizedAccessException("You are not authorized to update this requisition. Only the requisitor or an admin can edit it.");
-            }
-
             if (requisition.Status != RequisitionStatus.DRAFT.ToString())
                 throw new InvalidOperationException("Only draft requisitions can be updated");
+
+            // DRAFT requisitions are private working records: only the creator can
+            // edit them while they remain in DRAFT. No role (including Admin/
+            // SuperAdmin) may edit another user's draft — this is intentionally
+            // stricter than the general "isAdmin" bypass used elsewhere, because
+            // DRAFT visibility/ownership rules are absolute per the DRAFT-privacy
+            // requirement. Once submitted, normal role-based authorization applies.
+            if (requisition.RequisitorId != userId)
+            {
+                throw new UnauthorizedAccessException(
+                    "You are not authorized to update this requisition. Only the requisitor may edit a draft.");
+            }
 
             // Apply changes
             if (!string.IsNullOrWhiteSpace(dto.Payee))
@@ -333,27 +357,7 @@ namespace UCP.API.Services
 
             if (dto.Items != null && dto.Items.Any())
             {
-                if (requisition.Items != null && requisition.Items.Any())
-                {
-                    _context.RequisitionItems.RemoveRange(requisition.Items);
-                }
-
-                var newItems = dto.Items.Select(item => new RequisitionItem
-                {
-                    Id = Guid.NewGuid(),
-                    RequisitionId = requisition.Id,
-                    Description = item.Description,
-                    Quantity = item.Quantity,
-                    UnitPrice = item.UnitPrice,
-                    Total = item.Quantity * item.UnitPrice,
-                    CreatedDate = DateTime.UtcNow,
-                    UpdatedDate = DateTime.UtcNow,
-                    Version = 1
-                }).ToList();
-
-                requisition.Items = newItems;
-                _context.RequisitionItems.AddRange(newItems);
-                requisition.Amount = newItems.Sum(i => i.Total);
+                requisition.Amount = dto.Items.Sum(i => i.Quantity * i.UnitPrice);
                 requisition.AmountWords = NumberToWords.Convert(requisition.Amount);
             }
 
@@ -374,7 +378,32 @@ namespace UCP.API.Services
                 // The requisition was loaded by this context and is already tracked.
                 // Calling Update() here traverses newly-created items with assigned
                 // GUIDs and incorrectly marks them as Modified instead of Added.
+                // Claim the parent version before replacing its item rows.
                 await _context.SaveChangesAsync();
+
+                if (dto.Items != null && dto.Items.Any())
+                {
+                    await _context.RequisitionItems
+                        .Where(item => item.RequisitionId == requisition.Id)
+                        .ExecuteDeleteAsync();
+
+                    var replacementItems = dto.Items.Select(item => new RequisitionItem
+                    {
+                        Id = Guid.NewGuid(),
+                        RequisitionId = requisition.Id,
+                        Description = item.Description,
+                        Quantity = item.Quantity,
+                        UnitPrice = item.UnitPrice,
+                        Total = item.Quantity * item.UnitPrice,
+                        CreatedDate = DateTime.UtcNow,
+                        UpdatedDate = DateTime.UtcNow,
+                        CreatedById = userId,
+                        Version = 1
+                    });
+
+                    _context.RequisitionItems.AddRange(replacementItems);
+                    await _context.SaveChangesAsync();
+                }
             }
             catch (DbUpdateConcurrencyException ex)
             {
@@ -405,24 +434,39 @@ namespace UCP.API.Services
                 throw new InvalidOperationException("No fund balance found for this group.");
 
             var fundSource = Enum.Parse<FundSource>(requisition.FundSource);
+            decimal previousAvailable;
+            decimal newAvailable;
             if (fundSource == FundSource.Budgeted)
             {
                 var availableBudgeted = balance.BudgetedBalance - balance.CommittedBudgetedBalance;
                 if (requisition.Amount > availableBudgeted)
                     throw new InvalidOperationException($"Insufficient budget balance. Available: {availableBudgeted}, Requested: {requisition.Amount}");
+                previousAvailable = availableBudgeted;
                 balance.CommittedBudgetedBalance += requisition.Amount;
+                newAvailable = balance.BudgetedBalance - balance.CommittedBudgetedBalance;
             }
             else if (fundSource == FundSource.OwnFunds)
             {
                 var availableOwnFunds = balance.OwnFundsBalance - balance.CommittedOwnFundsBalance;
                 if (requisition.Amount > availableOwnFunds)
                     throw new InvalidOperationException($"Insufficient own funds balance. Available: {availableOwnFunds}, Requested: {requisition.Amount}");
+                previousAvailable = availableOwnFunds;
                 balance.CommittedOwnFundsBalance += requisition.Amount;
+                newAvailable = balance.OwnFundsBalance - balance.CommittedOwnFundsBalance;
             }
+            else throw new InvalidOperationException("Unsupported requisition fund source.");
 
             balance.UpdatedDate = DateTime.UtcNow;
             balance.Version++;
             _context.FundBalances.Update(balance);
+            _context.FundTransactions.Add(new FundTransaction
+            {
+                Id = Guid.NewGuid(), GroupId = requisition.GroupId, SectionId = requisition.SectionId, CommitteeId = requisition.CommitteeId,
+                TransactionType = "COMMITMENT", FundType = requisition.FundSource, Amount = -requisition.Amount,
+                PreviousBalance = previousAvailable, NewBalance = newAvailable,
+                Description = $"Funds reserved for requisition {requisition.RequisitionNumber}", Source = "REQUISITION",
+                ReferenceType = "REQUISITION", ReferenceId = requisition.Id, CreatedById = userId
+            });
 
             requisition.Status = RequisitionStatus.SENIOR_REPS_PENDING.ToString();
             requisition.UpdatedDate = DateTime.UtcNow;
@@ -430,6 +474,12 @@ namespace UCP.API.Services
             requisition.LastProcessedTimeStamp = DateTime.UtcNow;
             requisition.Version++;
             await _context.SaveChangesAsync();
+
+            var submitter = await _context.Users.FindAsync(userId);
+            await NotifyRequisitionStatusChangedAsync(
+                requisition,
+                submitter != null ? $"{submitter.FirstName} {submitter.LastName}" : "the requisitor",
+                "Your requisition has been submitted for approval.");
 
             return requisition;
         }
@@ -490,7 +540,8 @@ namespace UCP.API.Services
                     throw new InvalidOperationException("Both senior approval slots are already filled.");
                 }
 
-                if (GetSeniorApprovalCount(requisition) >= 2)
+                var movedToChurchAuth = GetSeniorApprovalCount(requisition) >= 2;
+                if (movedToChurchAuth)
                 {
                     requisition.Status = RequisitionStatus.CHURCH_AUTH_PENDING.ToString();
                 }
@@ -500,6 +551,11 @@ namespace UCP.API.Services
                 requisition.LastProcessedTimeStamp = DateTime.UtcNow;
                 requisition.Version++;
                 await _context.SaveChangesAsync();
+
+                if (movedToChurchAuth)
+                {
+                    await NotifyRequisitionStatusChangedAsync(requisition, $"{user.FirstName} {user.LastName}");
+                }
 
                 return requisition;
             }
@@ -515,6 +571,8 @@ namespace UCP.API.Services
                 requisition.LastProcessedTimeStamp = DateTime.UtcNow;
                 requisition.Version++;
                 await _context.SaveChangesAsync();
+
+                await NotifyRequisitionStatusChangedAsync(requisition, $"{user.FirstName} {user.LastName}");
 
                 return requisition;
             }
@@ -580,6 +638,8 @@ namespace UCP.API.Services
             requisition.Version++;
             await _context.SaveChangesAsync();
 
+            await NotifyRequisitionStatusChangedAsync(requisition, $"{user.FirstName} {user.LastName}", dto.Reason);
+
             return requisition;
         }
 
@@ -602,6 +662,11 @@ namespace UCP.API.Services
             requisition.LastProcessedTimeStamp = DateTime.UtcNow;
             requisition.Version++;
             await _context.SaveChangesAsync();
+
+            var actor = await _context.Users.FindAsync(userId);
+            await NotifyRequisitionStatusChangedAsync(
+                requisition,
+                actor != null ? $"{actor.FirstName} {actor.LastName}" : "an administrator");
 
             return requisition;
         }
@@ -626,6 +691,11 @@ namespace UCP.API.Services
             requisition.LastProcessedTimeStamp = DateTime.UtcNow;
             requisition.Version++;
             await _context.SaveChangesAsync();
+
+            var collector = await _context.Users.FindAsync(userId);
+            await NotifyRequisitionStatusChangedAsync(
+                requisition,
+                collector != null ? $"{collector.FirstName} {collector.LastName}" : "an administrator");
 
             return requisition;
         }
@@ -710,6 +780,49 @@ namespace UCP.API.Services
         // ============================================
         // PRIVATE LOADERS
         // ============================================
+
+        /// <summary>
+        /// Sends the requisition-status-changed notification to the requisitor
+        /// and writes a user-friendly process log entry. DRAFT is never a valid
+        /// "newStatus" here because every method that changes status also moves
+        /// the record out of DRAFT — so this never fires for records still in
+        /// DRAFT, per the "no status-change emails while DRAFT" requirement.
+        /// Never throws: notification/logging problems must not break the
+        /// underlying business transaction that already committed.
+        /// </summary>
+        private async Task NotifyRequisitionStatusChangedAsync(Requisition requisition, string actorName, string? note = null)
+        {
+            try
+            {
+                if (!requisition.RequisitorId.HasValue)
+                    return;
+
+                var requisitor = await _context.Users.FindAsync(requisition.RequisitorId.Value);
+                if (requisitor == null || string.IsNullOrWhiteSpace(requisitor.Email))
+                    return;
+
+                await _emailService.SendRequisitionStatusChangedAsync(
+                    requisitor.Email,
+                    $"{requisitor.FirstName} {requisitor.LastName}",
+                    requisition.RequisitionNumber,
+                    requisition.Status,
+                    note);
+
+                await _logWriter.WriteAsync(new SystemLog
+                {
+                    Level = "Information",
+                    Category = "Process",
+                    Process = "Requisitions",
+                    Action = "StatusChange",
+                    UserId = requisition.UpdatedById,
+                    Message = $"Requisition {requisition.RequisitionNumber} status changed to {requisition.Status} by {actorName}."
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send requisition status-change notification for {RequisitionId}", requisition.Id);
+            }
+        }
 
         private async Task<Requisition> LoadOwnedRequisitionAsync(Guid id, Guid userId)
         {
@@ -913,6 +1026,11 @@ namespace UCP.API.Services
             requisition.LastProcessedTimeStamp = DateTime.UtcNow;
             requisition.Version++;
             await _context.SaveChangesAsync();
+
+            var approver = await _context.Users.FindAsync(userId);
+            await NotifyRequisitionStatusChangedAsync(
+                requisition,
+                approver != null ? $"{approver.FirstName} {approver.LastName}" : "an administrator");
 
             return requisition;
         }

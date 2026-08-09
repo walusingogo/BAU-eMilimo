@@ -18,6 +18,11 @@ namespace UCP.API.Controllers
     [Authorize]
     public class ContributionsController : ControllerBase
     {
+        [HttpGet("next-number")]
+        [RequirePermission("contributions.initiate")]
+        public async Task<IActionResult> GetNextContributionNumber()
+            => Ok(new { contributionNumber = await _contributionService.GetNextContributionNumberAsync() });
+
         private readonly IContributionService _contributionService;
         private readonly ICurrentUserService _currentUserService;
         private readonly AppDbContext _context;
@@ -130,6 +135,7 @@ namespace UCP.API.Controllers
         {
             try
             {
+                dto.Allocations = ParseAllocations(dto.AllocationsJson ?? string.Empty);
                 var userId = GetUserId();
                 var contribution = await _contributionService.CreateContributionAsync(dto, userId);
 
@@ -394,6 +400,10 @@ namespace UCP.API.Controllers
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new { Message = ex.Message });
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                return Conflict(new { Message = ex.Message });
             }
             catch (UnauthorizedAccessException ex)
             {

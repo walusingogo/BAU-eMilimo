@@ -22,6 +22,435 @@ namespace UCP.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("UCP.Core.Entities.Asset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AssetCategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_category_id");
+
+                    b.Property<string>("AssetNumber")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("asset_number");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("category");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("QuantityAvailable")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity_available");
+
+                    b.Property<int>("QuantityTotal")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity_total");
+
+                    b.Property<string>("RegistrationNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("registration_number");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_assets");
+
+                    b.HasIndex("AssetCategoryId")
+                        .HasDatabaseName("ix_assets_asset_category_id");
+
+                    b.HasIndex("AssetNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_assets_asset_number");
+
+                    b.ToTable("assets", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.AssetAud", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<Guid?>("AssetCheckoutId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_checkout_id");
+
+                    b.Property<string>("ChangesJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("changes_json");
+
+                    b.Property<DateTime>("PerformedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("performed_at_utc");
+
+                    b.Property<Guid?>("PerformedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("performed_by_id");
+
+                    b.Property<string>("RecordType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("record_type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_aud");
+
+                    b.HasIndex("AssetId", "PerformedAtUtc")
+                        .HasDatabaseName("ix_asset_aud_asset_id_performed_at_utc");
+
+                    b.ToTable("asset_aud", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.AssetCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("code");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_categories");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_categories_code");
+
+                    b.ToTable("asset_categories", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.AssetCheckout", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApprovalNote")
+                        .HasColumnType("text")
+                        .HasColumnName("approval_note");
+
+                    b.Property<Guid?>("ApprovedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by_id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<DateTime?>("CheckedOutAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("checked_out_at_utc");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<Guid?>("DriverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("driver_id");
+
+                    b.Property<DateTime>("ExpectedOutAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expected_out_at_utc");
+
+                    b.Property<DateTime>("ExpectedReturnAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expected_return_at_utc");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<decimal?>("PaymentAmount")
+                        .HasColumnType("numeric")
+                        .HasColumnName("payment_amount");
+
+                    b.Property<bool?>("PaymentHonored")
+                        .HasColumnType("boolean")
+                        .HasColumnName("payment_honored");
+
+                    b.Property<DateTime?>("PaymentHonoredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("payment_honored_at_utc");
+
+                    b.Property<bool>("PaymentRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("payment_required");
+
+                    b.Property<Guid?>("PaymentVerifiedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_verified_by_id");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("purpose");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity");
+
+                    b.Property<Guid>("RequestedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by_id");
+
+                    b.Property<string>("RequestNumber")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("request_number");
+
+                    b.Property<DateTime?>("ReturnedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("returned_at_utc");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_checkouts");
+
+                    b.HasIndex("AssetId", "Status")
+                        .HasDatabaseName("ix_asset_checkouts_asset_id_status");
+
+                    b.HasIndex("RequestNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_checkouts_request_number");
+
+                    b.ToTable("asset_checkouts", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.AssetDriver", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("email");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("phone_number");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_drivers");
+
+                    b.ToTable("asset_drivers", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.AssetMovement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("action");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<int>("BalanceAfter")
+                        .HasColumnType("integer")
+                        .HasColumnName("balance_after");
+
+                    b.Property<Guid?>("CheckoutId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("checkout_id");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<DateTime>("PerformedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("performed_at_utc");
+
+                    b.Property<Guid>("PerformedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("performed_by_id");
+
+                    b.Property<int>("QuantityChange")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity_change");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_movements");
+
+                    b.HasIndex("AssetId", "PerformedAtUtc")
+                        .HasDatabaseName("ix_asset_movements_asset_id_performed_at_utc");
+
+                    b.ToTable("asset_movements", (string)null);
+                });
+
             modelBuilder.Entity("UCP.Core.Entities.BankAccount", b =>
                 {
                     b.Property<Guid>("Id")
@@ -148,6 +577,175 @@ namespace UCP.Infrastructure.Migrations
                         .HasDatabaseName("ix_committees_committee_name");
 
                     b.ToTable("committees", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.Companions.AssetAtm", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AttachmentType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("attachment_type");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("file_path");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("mime_type");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("uploaded_at");
+
+                    b.Property<Guid?>("UploadedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("uploaded_by_id");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_atms");
+
+                    b.HasIndex("EntityId")
+                        .HasDatabaseName("ix_asset_atms_entity_id");
+
+                    b.ToTable("asset_atms", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.Companions.AssetCheckoutAtm", b =>
+                {
+                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid").HasColumnName("id");
+                    b.Property<string>("AttachmentType").IsRequired().HasMaxLength(30).HasColumnType("character varying(30)").HasColumnName("attachment_type");
+                    b.Property<Guid?>("CreatedById").HasColumnType("uuid").HasColumnName("created_by_id");
+                    b.Property<DateTime>("CreatedDate").HasColumnType("timestamp with time zone").HasColumnName("created_date");
+                    b.Property<string>("Description").HasColumnType("text").HasColumnName("description");
+                    b.Property<Guid>("EntityId").HasColumnType("uuid").HasColumnName("entity_id");
+                    b.Property<string>("FileName").IsRequired().HasColumnType("text").HasColumnName("file_name");
+                    b.Property<string>("FilePath").IsRequired().HasColumnType("text").HasColumnName("file_path");
+                    b.Property<DateTime?>("LastProcessedTimeStamp").HasColumnType("timestamp with time zone").HasColumnName("last_processed_time_stamp");
+                    b.Property<string>("MimeType").IsRequired().HasColumnType("text").HasColumnName("mime_type");
+                    b.Property<long>("Size").HasColumnType("bigint").HasColumnName("size");
+                    b.Property<Guid?>("UpdatedById").HasColumnType("uuid").HasColumnName("updated_by_id");
+                    b.Property<DateTime>("UpdatedDate").HasColumnType("timestamp with time zone").HasColumnName("updated_date");
+                    b.Property<DateTime>("UploadedAt").HasColumnType("timestamp with time zone").HasColumnName("uploaded_at");
+                    b.Property<Guid?>("UploadedById").HasColumnType("uuid").HasColumnName("uploaded_by_id");
+                    b.Property<int>("Version").HasColumnType("integer").HasColumnName("version");
+                    b.HasKey("Id").HasName("pk_asset_checkouts_atms");
+                    b.HasIndex("EntityId").HasDatabaseName("ix_asset_checkouts_atms_entity_id");
+                    b.ToTable("asset_checkouts_atms", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.Companions.AssetLck", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("LockReason")
+                        .HasColumnType("text")
+                        .HasColumnName("lock_reason");
+
+                    b.Property<DateTime>("LockedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_at");
+
+                    b.Property<Guid>("LockedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("locked_by_id");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_lcks");
+
+                    b.HasIndex("EntityId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_lcks_entity_id");
+
+                    b.HasIndex("LockedById")
+                        .HasDatabaseName("ix_asset_lcks_locked_by_id");
+
+                    b.ToTable("asset_lcks", (string)null);
                 });
 
             modelBuilder.Entity("UCP.Core.Entities.Companions.ContributionAtm", b =>
@@ -755,6 +1353,45 @@ namespace UCP.Infrastructure.Migrations
                     b.ToTable("contribution_allocations", (string)null);
                 });
 
+            modelBuilder.Entity("UCP.Core.Entities.ContributionAud", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("ChangesJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("changes_json");
+
+                    b.Property<Guid>("ContributionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("contribution_id");
+
+                    b.Property<DateTime>("PerformedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("performed_at_utc");
+
+                    b.Property<Guid?>("PerformedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("performed_by_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_contribution_aud");
+
+                    b.HasIndex("ContributionId", "PerformedAtUtc")
+                        .HasDatabaseName("ix_contribution_aud_contribution_id_performed_at_utc");
+
+                    b.ToTable("contribution_aud", (string)null);
+                });
+
             modelBuilder.Entity("UCP.Core.Entities.ContributionSource", b =>
                 {
                     b.Property<Guid>("Id")
@@ -871,6 +1508,62 @@ namespace UCP.Infrastructure.Migrations
                         .HasDatabaseName("ix_contribution_types_code");
 
                     b.ToTable("contribution_types", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.EmailLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("category");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at_utc");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("subject");
+
+                    b.Property<string>("ToEmail")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("to_email");
+
+                    b.Property<Guid?>("TriggeredByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("triggered_by_user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_email_logs");
+
+                    b.HasIndex("SentAtUtc")
+                        .HasDatabaseName("ix_email_logs_sent_at_utc");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_email_logs_status");
+
+                    b.ToTable("email_logs", (string)null);
                 });
 
             modelBuilder.Entity("UCP.Core.Entities.FundBalance", b =>
@@ -1160,66 +1853,6 @@ namespace UCP.Infrastructure.Migrations
                     b.ToTable("groups", (string)null);
                 });
 
-            modelBuilder.Entity("UCP.Core.Entities.PaymentMethod", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("code");
-
-                    b.Property<Guid?>("CreatedById")
-                        .HasColumnType("uuid")
-                        .HasColumnName("created_by_id");
-
-                    b.Property<DateTime>("CreatedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_date");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text")
-                        .HasColumnName("description");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<DateTime?>("LastProcessedTimeStamp")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_processed_time_stamp");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
-
-                    b.Property<Guid?>("UpdatedById")
-                        .HasColumnType("uuid")
-                        .HasColumnName("updated_by_id");
-
-                    b.Property<DateTime>("UpdatedDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_date");
-
-                    b.Property<int>("Version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("integer")
-                        .HasColumnName("version");
-
-                    b.HasKey("Id")
-                        .HasName("pk_payment_methods");
-
-                    b.HasIndex("Code")
-                        .IsUnique()
-                        .HasDatabaseName("ix_payment_methods_code");
-
-                    b.ToTable("payment_methods", (string)null);
-                });
-
             modelBuilder.Entity("UCP.Core.Entities.Requisition", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1406,6 +2039,45 @@ namespace UCP.Infrastructure.Migrations
                     b.ToTable("requisitions", (string)null);
                 });
 
+            modelBuilder.Entity("UCP.Core.Entities.RequisitionAud", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("ChangesJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("changes_json");
+
+                    b.Property<DateTime>("PerformedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("performed_at_utc");
+
+                    b.Property<Guid?>("PerformedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("performed_by_id");
+
+                    b.Property<Guid>("RequisitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requisition_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_requisition_aud");
+
+                    b.HasIndex("RequisitionId", "PerformedAtUtc")
+                        .HasDatabaseName("ix_requisition_aud_requisition_id_performed_at_utc");
+
+                    b.ToTable("requisition_aud", (string)null);
+                });
+
             modelBuilder.Entity("UCP.Core.Entities.RequisitionItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1468,6 +2140,59 @@ namespace UCP.Infrastructure.Migrations
                     b.ToTable("requisition_items", (string)null);
                 });
 
+            modelBuilder.Entity("UCP.Core.Entities.RolePermission", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("PermissionsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("permissions_json");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("role");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_role_permissions");
+
+                    b.HasIndex("Role")
+                        .IsUnique()
+                        .HasDatabaseName("ix_role_permissions_role");
+
+                    b.ToTable("role_permissions", (string)null);
+                });
+
             modelBuilder.Entity("UCP.Core.Entities.Section", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1525,6 +2250,90 @@ namespace UCP.Infrastructure.Migrations
                         .HasDatabaseName("ix_sections_section_number");
 
                     b.ToTable("sections", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.SmtpSetting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<bool>("EnableSsl")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_ssl");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("FromEmail")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("from_email");
+
+                    b.Property<string>("FromName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("from_name");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("host");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("Password")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("password");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("integer")
+                        .HasColumnName("port");
+
+                    b.Property<int>("TimeoutMilliseconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("timeout_milliseconds");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("username");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_smtp_settings");
+
+                    b.ToTable("smtp_settings", (string)null);
                 });
 
             modelBuilder.Entity("UCP.Core.Entities.SystemConfig", b =>
@@ -1891,6 +2700,73 @@ namespace UCP.Infrastructure.Migrations
                         .HasDatabaseName("ix_user_group_assignments_group_id");
 
                     b.ToTable("user_group_assignments", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.Asset", b =>
+                {
+                    b.HasOne("UCP.Core.Entities.AssetCategory", "AssetCategory")
+                        .WithMany()
+                        .HasForeignKey("AssetCategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_assets_asset_categories_asset_category_id");
+
+                    b.Navigation("AssetCategory");
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.AssetCheckout", b =>
+                {
+                    b.HasOne("UCP.Core.Entities.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_checkouts_assets_asset_id");
+
+                    b.Navigation("Asset");
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.Companions.AssetAtm", b =>
+                {
+                    b.HasOne("UCP.Core.Entities.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("EntityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_atms_assets_entity_id");
+
+                    b.Navigation("Asset");
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.Companions.AssetCheckoutAtm", b =>
+                {
+                    b.HasOne("UCP.Core.Entities.AssetCheckout", "AssetCheckout")
+                        .WithMany()
+                        .HasForeignKey("EntityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_checkouts_atms_asset_checkouts_entity_id");
+                    b.Navigation("AssetCheckout");
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.Companions.AssetLck", b =>
+                {
+                    b.HasOne("UCP.Core.Entities.Asset", "Asset")
+                        .WithMany()
+                        .HasForeignKey("EntityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_lcks_assets_entity_id");
+
+                    b.HasOne("UCP.Core.Entities.User", "LockedByUser")
+                        .WithMany()
+                        .HasForeignKey("LockedById")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_lcks_users_locked_by_id");
+
+                    b.Navigation("Asset");
+
+                    b.Navigation("LockedByUser");
                 });
 
             modelBuilder.Entity("UCP.Core.Entities.Companions.ContributionAtm", b =>

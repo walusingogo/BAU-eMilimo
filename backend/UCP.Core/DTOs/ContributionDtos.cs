@@ -36,8 +36,12 @@ namespace UCP.Core.DTOs
 
         public ContributionStatus Status { get; set; } = ContributionStatus.DRAFT;
 
-        [Required]
-        [MinLength(1, ErrorMessage = "At least one allocation is required")]
+        //[Required]
+        //[MinLength(1, ErrorMessage = "At least one allocation is required")]
+        // Send from Angular as: formData.append("AllocationsJson", JSON.stringify(allocations));
+        public string? AllocationsJson { get; set; }
+        
+        [JsonIgnore]
         public List<ContributionAllocationRequest> Allocations { get; set; } = new();
         
         public List<IFormFile>? Files { get; set; }
@@ -45,6 +49,10 @@ namespace UCP.Core.DTOs
 
     public class ContributionAllocationRequest
     {
+        // Existing items must send their database ID.
+        // New items should omit this value or send null.
+        public Guid? Id { get; set; }
+
         public Guid? GroupId { get; set; }
         public Guid? SectionId { get; set; }
         public Guid? CommitteeId { get; set; }
@@ -62,6 +70,10 @@ namespace UCP.Core.DTOs
         public bool IsPrimary { get; set; } = false;
 
         public string? Notes { get; set; }
+
+        // Optional child concurrency token.
+        // Send this for existing items when allocation-level concurrency is enabled.
+        public int? Version { get; set; }
     }
 
     // ============ UPDATE CONTRIBUTION DTO ============
@@ -185,12 +197,24 @@ namespace UCP.Core.DTOs
     public class ContributionAllocationResponse
     {
         public Guid Id { get; set; }
+
+        // Raw IDs are required by the edit screen so it can submit the
+        // complete final collection back to the update endpoint.
+        public Guid? GroupId { get; set; }
+        public Guid? SectionId { get; set; }
+        public Guid? CommitteeId { get; set; }
+        public Guid ContributionTypeId { get; set; }
+
         public GroupBriefResponse? Group { get; set; }
         public OrganizationBriefResponse? Entity { get; set; }
+
         public decimal AllocatedAmount { get; set; }
         public decimal? PercentageAllocation { get; set; }
         public bool IsPrimary { get; set; }
         public string? Notes { get; set; }
+
+        // Returned so an edit screen can participate in optimistic concurrency.
+        public int Version { get; set; }
     }
 
     public class OrganizationBriefResponse

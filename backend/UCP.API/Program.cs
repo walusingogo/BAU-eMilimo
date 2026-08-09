@@ -8,11 +8,13 @@ using System.Text.Json.Serialization;
 using UCP.API.Services;
 using UCP.Core.Services;
 using UCP.Core.Configuration;
+using UCP.Core.Entities;
 using UCP.Infrastructure.Data;
 using UCP.Infrastructure.SeedData;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
+builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection("Smtp"));
 
 // Ensure wwwroot exists
 var webRootPath = Path.Combine(builder.Environment.ContentRootPath, "wwwroot");
@@ -109,6 +111,8 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 builder.Services.AddScoped<UCP.API.Services.IRolePermissionService, UCP.API.Services.RolePermissionService>();
 builder.Services.AddSingleton<UCP.API.Services.ISystemLogWriter, UCP.API.Services.SystemLogWriter>();
 builder.Services.AddHostedService<UCP.API.Services.ApplicationLifecycleLogger>();
+builder.Services.AddSingleton<ISmtpSettingsProvider, SmtpSettingsProvider>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 
 // ----- JWT Authentication -----
 var jwtSecret = builder.Configuration["Jwt:Secret"] ?? throw new InvalidOperationException("JWT Secret is not configured.");
@@ -145,6 +149,18 @@ using (var scope = app.Services.CreateScope())
     try
     {
         await db.Database.MigrateAsync();
+        if (!await db.SmtpSettings.AnyAsync())
+        {
+            var bootstrap = builder.Configuration.GetSection("Smtp").Get<SmtpSettings>() ?? new SmtpSettings();
+            db.SmtpSettings.Add(new SmtpSetting
+            {
+                Id = Guid.NewGuid(), Enabled = bootstrap.Enabled, Host = bootstrap.Host,
+                Port = bootstrap.Port, EnableSsl = bootstrap.EnableSsl, Username = bootstrap.Username,
+                Password = bootstrap.Password, FromEmail = bootstrap.FromEmail, FromName = bootstrap.FromName,
+                TimeoutMilliseconds = bootstrap.TimeoutMilliseconds
+            });
+            await db.SaveChangesAsync();
+        }
         await DbSeeder.SeedAsync(db);
     }
     catch (Exception ex)

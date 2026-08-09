@@ -14,7 +14,6 @@ namespace UCP.Core.Services
         
         Task<ContributionResponse> ConfirmContributionAsync(Guid contributionId, Guid userId);
         
-        // Use the DTO version - fully qualified to avoid ambiguity
         Task<(List<ContributionResponse> Data, int Total)> GetContributionsAsync(UCP.Core.DTOs.ContributionFilter filter);
         
         Task<ContributionResponse?> GetContributionByIdAsync(Guid id);
@@ -25,24 +24,9 @@ namespace UCP.Core.Services
         // UPDATE, REJECT, SUBMIT, ARCHIVE METHODS
         // ============================================
 
-        /// <summary>
-        /// Update a contribution (only allowed in DRAFT status)
-        /// </summary>
         Task<ContributionResponse> UpdateContributionAsync(Guid contributionId, UpdateContributionDto dto, Guid userId);
-
-        /// <summary>
-        /// Reject a contribution (only allowed in PENDING status)
-        /// </summary>
         Task<ContributionResponse> RejectContributionAsync(Guid contributionId, RejectContributionDto dto, Guid userId);
-
-        /// <summary>
-        /// Submit a draft contribution for confirmation (changes status from DRAFT to PENDING)
-        /// </summary>
         Task<ContributionResponse> SubmitContributionAsync(Guid contributionId, Guid userId);
-
-        /// <summary>
-        /// Archive a contribution (only allowed in DRAFT status)
-        /// </summary>
         Task ArchiveContributionAsync(Guid contributionId, ArchiveContributionDto dto, Guid userId);
 
         // ============================================
@@ -50,9 +34,7 @@ namespace UCP.Core.Services
         // ============================================
 
         Task<List<ContributionTypeResponse>> GetContributionTypesAsync();
-        
         Task<List<ContributionSourceResponse>> GetContributionSourcesAsync();
-        
         Task<List<BankAccountResponse>> GetBankAccountsAsync();
 
         // ============================================
@@ -67,5 +49,14 @@ namespace UCP.Core.Services
         Task<List<ContributionAttachmentResponse>> GetAttachmentsAsync(Guid contributionId);
 
         Task DeleteAttachmentAsync(Guid contributionId, Guid attachmentId, Guid userId);
+
+        // ============================================
+        // NEW: GET NEXT CONTRIBUTION NUMBER
+        // ============================================
+
+        /// <summary>
+        /// Returns the next contribution number in the sequence (e.g. CONT-2026-000123)
+        /// </summary>
+        Task<string> GetNextContributionNumberAsync();
     }
 }

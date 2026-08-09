@@ -24,13 +24,15 @@ namespace UCP.API.Controllers
         private readonly ILockService _lockService;
         private readonly ICurrentUserService _currentUserService;
         private readonly SecuritySettings _security;
+        private readonly IEmailService _emailService;
 
-        public UsersController(AppDbContext context, ILockService lockService, ICurrentUserService currentUserService, IOptions<SecuritySettings> security)
+        public UsersController(AppDbContext context, ILockService lockService, ICurrentUserService currentUserService, IOptions<SecuritySettings> security, IEmailService emailService)
         {
             _context = context;
             _lockService = lockService;
             _currentUserService = currentUserService;
             _security = security.Value;
+            _emailService = emailService;
         }
 
         private Guid GetCurrentUserId()
@@ -416,6 +418,8 @@ namespace UCP.API.Controllers
 
             await _context.SaveChangesAsync();
 
+            await _emailService.SendAccountActivatedAsync(user.Email, $"{user.FirstName} {user.LastName}");
+
             return Ok(new { Message = "User activated successfully" });
         }
 
@@ -451,6 +455,8 @@ namespace UCP.API.Controllers
             user.LastProcessedTimeStamp = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+
+            await _emailService.SendAccountDeactivatedAsync(user.Email, $"{user.FirstName} {user.LastName}");
 
             return Ok(new { Message = "User deactivated successfully" });
         }
