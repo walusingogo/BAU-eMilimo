@@ -21,6 +21,7 @@ namespace UCP.API.Services
         private readonly IGroupAccessService _groupAccess;
         private readonly IEmailService _emailService;
         private readonly ISystemLogWriter _logWriter;
+        private readonly IApprovalNotificationService _approvalNotifications;
 
         public RequisitionService(
             AppDbContext context,
@@ -29,7 +30,8 @@ namespace UCP.API.Services
             ILogger<RequisitionService> logger,
             IGroupAccessService groupAccess,
             IEmailService emailService,
-            ISystemLogWriter logWriter)
+            ISystemLogWriter logWriter,
+            IApprovalNotificationService approvalNotifications)
         {
             _emailService = emailService;
             _logWriter = logWriter;
@@ -38,6 +40,7 @@ namespace UCP.API.Services
             _webHostEnvironment = webHostEnvironment;
             _logger = logger;
             _groupAccess = groupAccess;
+            _approvalNotifications = approvalNotifications;
         }
 
         // ============================================
@@ -498,7 +501,25 @@ namespace UCP.API.Services
 
         private bool HasUserApproved(Requisition requisition, Guid userId)
         {
-            return requisition.FirstSeniorApproverId == userId || requisition.SecondSeniorApproverId == userId;
+            return requisition.FirstSeniorApproverId == userId || requisition.SecondSeniorApproverId == userId ||
+                   requisition.TreasurerApproverId == userId || requisition.AccountantApproverId == userId ||
+                   requisition.ChurchAuthorityApproverId == userId || requisition.MinisterApproverId == userId;
+        }
+
+        private async Task<bool> BelongsToRequestingEntityAsync(User user, Requisition requisition)
+        {
+            if (requisition.GroupId.HasValue)
+                return user.GroupId == requisition.GroupId || await _context.UserGroupAssignments.AnyAsync(x => x.UserId == user.Id && x.GroupId == requisition.GroupId);
+            if (requisition.SectionId.HasValue) return user.SectionId == requisition.SectionId;
+            if (requisition.CommitteeId.HasValue)
+                return await _context.UserCommitteeAssignments.AnyAsync(x => x.UserId == user.Id && x.CommitteeId == requisition.CommitteeId);
+            return false;
+        }
+
+        private async Task<decimal> MinisterApprovalThresholdAsync()
+        {
+            var value = await _context.SystemConfigs.AsNoTracking().Where(x => x.ConfigKey == "minister_approval_threshold").Select(x => x.ConfigValue).FirstOrDefaultAsync();
+            return decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var threshold) ? threshold : 0m;
         }
 
         public async Task<Requisition> ApproveRequisitionAsync(Guid id, ApproveRequisitionDto dto, Guid userId)
@@ -511,8 +532,9 @@ namespace UCP.API.Services
             if (requisition.Status == RequisitionStatus.REJECTED.ToString() || requisition.Status == RequisitionStatus.ARCHIVED.ToString())
                 throw new InvalidOperationException("Cannot approve a requisition in its current state.");
 
-            // SuperAdmin or Admin can approve directly (bypass rules)
-            if (user.Role == UserRole.SuperAdmin.ToString() || user.Role == UserRole.Admin.ToString())
+            // SuperAdmin retains the system-wide emergency override. Administrators
+            // still manage the process, but do not replace its designated signers.
+            if (user.Role == UserRole.SuperAdmin.ToString())
             {
                 return await FinalApproveRequisitionAsync(requisition, userId);
             }
@@ -523,6 +545,8 @@ namespace UCP.API.Services
             {
                 if (user.Role != UserRole.SeniorRep.ToString())
                     throw new UnauthorizedAccessException("Only Senior Representatives can approve at this stage.");
+                if (!await BelongsToRequestingEntityAsync(user, requisition))
+                    throw new UnauthorizedAccessException("The Senior Representative must belong to the same group, section, or committee as the requisitor.");
 
                 if (HasUserApproved(requisition, userId))
                     throw new InvalidOperationException("You have already approved this requisition.");
@@ -562,26 +586,35 @@ namespace UCP.API.Services
 
             if (currentStatus == RequisitionStatus.CHURCH_AUTH_PENDING.ToString())
             {
-                if (user.Role != UserRole.ChurchAuth.ToString())
-                    throw new UnauthorizedAccessException("Only Church Auth representatives can approve at this stage.");
+                if (HasUserApproved(requisition, userId)) throw new InvalidOperationException("You have already approved this requisition.");
+                if (user.Role == UserRole.Treasurer.ToString()) requisition.TreasurerApproverId = userId;
+                else if (user.Role == UserRole.Accountant.ToString()) requisition.AccountantApproverId = userId;
+                else if (user.Role is nameof(UserRole.ChurchAuth) or nameof(UserRole.Secretary)) requisition.ChurchAuthorityApproverId = userId;
+                else throw new UnauthorizedAccessException("This stage requires one Treasurer, one Accountant, and one Church Authority or Secretary.");
 
-                requisition.Status = RequisitionStatus.MINISTER_PENDING.ToString();
+                var churchStageComplete = requisition.TreasurerApproverId.HasValue && requisition.AccountantApproverId.HasValue && requisition.ChurchAuthorityApproverId.HasValue;
+                if (churchStageComplete)
+                {
+                    var threshold = await MinisterApprovalThresholdAsync();
+                    if (requisition.Amount > threshold) requisition.Status = RequisitionStatus.MINISTER_PENDING.ToString();
+                }
                 requisition.UpdatedDate = DateTime.UtcNow;
                 requisition.UpdatedById = userId;
                 requisition.LastProcessedTimeStamp = DateTime.UtcNow;
                 requisition.Version++;
                 await _context.SaveChangesAsync();
 
-                await NotifyRequisitionStatusChangedAsync(requisition, $"{user.FirstName} {user.LastName}");
-
-                return requisition;
+                if (!churchStageComplete) return requisition;
+                if (requisition.Status == RequisitionStatus.MINISTER_PENDING.ToString())
+                { await NotifyRequisitionStatusChangedAsync(requisition, $"{user.FirstName} {user.LastName}"); return requisition; }
+                return await FinalApproveRequisitionAsync(requisition, userId);
             }
 
             if (currentStatus == RequisitionStatus.MINISTER_PENDING.ToString())
             {
                 if (user.Role != UserRole.Minister.ToString())
                     throw new UnauthorizedAccessException("Only Minister can approve at this stage.");
-
+                requisition.MinisterApproverId = userId;
                 return await FinalApproveRequisitionAsync(requisition, userId);
             }
 
@@ -606,9 +639,9 @@ namespace UCP.API.Services
             if (!canReject)
             {
                 var currentStatus = requisition.Status;
-                if (currentStatus == RequisitionStatus.SENIOR_REPS_PENDING.ToString() && user.Role != UserRole.SeniorRep.ToString())
-                    throw new UnauthorizedAccessException("You are not authorized to reject at this stage.");
-                else if (currentStatus == RequisitionStatus.CHURCH_AUTH_PENDING.ToString() && user.Role != UserRole.ChurchAuth.ToString())
+                if (currentStatus == RequisitionStatus.SENIOR_REPS_PENDING.ToString() && (user.Role != UserRole.SeniorRep.ToString() || !await BelongsToRequestingEntityAsync(user, requisition)))
+                    throw new UnauthorizedAccessException("Only a Senior Representative from the same requesting entity may reject at this stage.");
+                else if (currentStatus == RequisitionStatus.CHURCH_AUTH_PENDING.ToString() && user.Role is not (nameof(UserRole.Treasurer) or nameof(UserRole.Accountant) or nameof(UserRole.ChurchAuth) or nameof(UserRole.Secretary)))
                     throw new UnauthorizedAccessException("You are not authorized to reject at this stage.");
                 else if (currentStatus == RequisitionStatus.MINISTER_PENDING.ToString() && user.Role != UserRole.Minister.ToString())
                     throw new UnauthorizedAccessException("You are not authorized to reject at this stage.");
@@ -794,6 +827,25 @@ namespace UCP.API.Services
         {
             try
             {
+                if (requisition.Status.EndsWith("_PENDING", StringComparison.OrdinalIgnoreCase))
+                {
+                    var roles = requisition.Status switch
+                    {
+                        "SENIOR_REPS_PENDING" => new[] { nameof(UserRole.SeniorRep) },
+                        "CHURCH_AUTH_PENDING" => new[] { nameof(UserRole.Treasurer), nameof(UserRole.Accountant), nameof(UserRole.ChurchAuth), nameof(UserRole.Secretary) },
+                        "MINISTER_PENDING" => new[] { nameof(UserRole.Minister) },
+                        _ => Array.Empty<string>()
+                    };
+                    var restrictEntity = requisition.Status == "SENIOR_REPS_PENDING";
+                    await _approvalNotifications.NotifyAsync("requisitions.approve", "Requisition",
+                        requisition.RequisitionNumber, $"ZMW {requisition.Amount:N2} requires approval.",
+                        $"requisitions/approvals/{requisition.Id}", requisition.RequisitorId,
+                        allowedRoles: roles,
+                        groupId: restrictEntity ? requisition.GroupId : null,
+                        sectionId: restrictEntity ? requisition.SectionId : null,
+                        committeeId: restrictEntity ? requisition.CommitteeId : null);
+                }
+
                 if (!requisition.RequisitorId.HasValue)
                     return;
 

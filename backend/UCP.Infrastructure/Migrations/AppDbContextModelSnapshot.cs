@@ -236,6 +236,10 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("approved_by_id");
 
+                    b.Property<Guid?>("CommitteeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("committee_id");
+
                     b.Property<Guid>("AssetId")
                         .HasColumnType("uuid")
                         .HasColumnName("asset_id");
@@ -255,6 +259,10 @@ namespace UCP.Infrastructure.Migrations
                     b.Property<Guid?>("DriverId")
                         .HasColumnType("uuid")
                         .HasColumnName("driver_id");
+
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("group_id");
 
                     b.Property<DateTime>("ExpectedOutAtUtc")
                         .HasColumnType("timestamp with time zone")
@@ -301,6 +309,10 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("requested_by_id");
 
+                    b.Property<Guid?>("SectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("section_id");
+
                     b.Property<string>("RequestNumber")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -336,9 +348,18 @@ namespace UCP.Infrastructure.Migrations
                     b.HasIndex("AssetId", "Status")
                         .HasDatabaseName("ix_asset_checkouts_asset_id_status");
 
+                    b.HasIndex("CommitteeId")
+                        .HasDatabaseName("ix_asset_checkouts_committee_id");
+
+                    b.HasIndex("GroupId")
+                        .HasDatabaseName("ix_asset_checkouts_group_id");
+
                     b.HasIndex("RequestNumber")
                         .IsUnique()
                         .HasDatabaseName("ix_asset_checkouts_request_number");
+
+                    b.HasIndex("SectionId")
+                        .HasDatabaseName("ix_asset_checkouts_section_id");
 
                     b.ToTable("asset_checkouts", (string)null);
                 });
@@ -1921,6 +1942,22 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("first_senior_approver_id");
 
+                    b.Property<Guid?>("AccountantApproverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("accountant_approver_id");
+
+                    b.Property<Guid?>("ChurchAuthorityApproverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("church_authority_approver_id");
+
+                    b.Property<Guid?>("MinisterApproverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("minister_approver_id");
+
+                    b.Property<Guid?>("TreasurerApproverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("treasurer_approver_id");
+
                     b.Property<string>("FundSource")
                         .IsRequired()
                         .HasColumnType("text")
@@ -2722,7 +2759,28 @@ namespace UCP.Infrastructure.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_asset_checkouts_assets_asset_id");
 
+                    b.HasOne("UCP.Core.Entities.Committee", "Committee")
+                        .WithMany()
+                        .HasForeignKey("CommitteeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_checkouts_committees_committee_id");
+
+                    b.HasOne("UCP.Core.Entities.Group", "Group")
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_checkouts_groups_group_id");
+
+                    b.HasOne("UCP.Core.Entities.Section", "Section")
+                        .WithMany()
+                        .HasForeignKey("SectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_checkouts_sections_section_id");
+
                     b.Navigation("Asset");
+                    b.Navigation("Committee");
+                    b.Navigation("Group");
+                    b.Navigation("Section");
                 });
 
             modelBuilder.Entity("UCP.Core.Entities.Companions.AssetAtm", b =>

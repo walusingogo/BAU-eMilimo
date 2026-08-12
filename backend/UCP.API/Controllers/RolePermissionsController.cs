@@ -31,7 +31,7 @@ public class RolePermissionsController : ControllerBase
 
     public RolePermissionsController(AppDbContext context) => _context = context;
 
-    [HttpGet, Authorize(Roles="SuperAdmin")]
+    [HttpGet, Authorize(Roles="SuperAdmin,Admin")]
     public async Task<IActionResult> GetMatrix()
     {
         var stored = await _context.RolePermissions.ToDictionaryAsync(x => x.Role, x => x.PermissionsJson);
@@ -43,13 +43,15 @@ public class RolePermissionsController : ControllerBase
     public async Task<IActionResult> GetMine([FromServices] IRolePermissionService permissions, [FromServices] UCP.Core.Services.ICurrentUserService current)
         => Ok(new { role=current.GetUserRole(), permissions=await permissions.GetAsync(current.GetUserRole()) });
 
-    [HttpPut("{role}"), Authorize(Roles="SuperAdmin")]
+    [HttpPut("{role}"), Authorize(Roles="SuperAdmin,Admin")]
     public async Task<IActionResult> Update(string role, PermissionUpdate request)
     {
         if (!Enum.TryParse<UserRole>(role, true, out var parsed)) return BadRequest(new { Message="Unknown role." });
         if (parsed == UserRole.SuperAdmin) return BadRequest(new { Message="Super Admin permissions cannot be restricted." });
         var allowed = Processes.Select(p => (string)p.GetType().GetProperty("Key")!.GetValue(p)!).ToHashSet();
         var permissions = request.Permissions.Where(allowed.Contains).Distinct().Order().ToArray();
+        if (parsed == UserRole.Admin)
+            permissions = permissions.Where(p => p is not "requisitions.initiate" and not "contributions.initiate").ToArray();
         var config = await _context.RolePermissions.FirstOrDefaultAsync(x => x.Role == parsed.ToString());
         if (config == null) { config = new RolePermission { Id=Guid.NewGuid(), Role=parsed.ToString(), CreatedDate=DateTime.UtcNow }; _context.RolePermissions.Add(config); }
         config.PermissionsJson = JsonSerializer.Serialize(permissions); config.UpdatedDate = DateTime.UtcNow; config.Version++;

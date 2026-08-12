@@ -7,6 +7,9 @@ public class AssetCheckout : BaseEntity
     [MaxLength(40)] public string RequestNumber { get; set; } = string.Empty;
     public Guid AssetId { get; set; }
     public Guid RequestedById { get; set; }
+    public Guid? GroupId { get; set; }
+    public Guid? SectionId { get; set; }
+    public Guid? CommitteeId { get; set; }
     public Guid? DriverId { get; set; }
     public Guid? ApprovedById { get; set; }
     public int Quantity { get; set; }
@@ -23,4 +26,7 @@ public class AssetCheckout : BaseEntity
     public DateTime? PaymentHonoredAtUtc { get; set; }
     public Guid? PaymentVerifiedById { get; set; }
     public Asset? Asset { get; set; }
+    public Group? Group { get; set; }
+    public Section? Section { get; set; }
+    public Committee? Committee { get; set; }
 }

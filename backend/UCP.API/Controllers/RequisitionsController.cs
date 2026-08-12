@@ -70,6 +70,8 @@ namespace UCP.API.Controllers
         {
             try
             {
+                if (_currentUserService.GetUserRole() == nameof(UserRole.Admin))
+                    return StatusCode(403, new { message = "Administrators may view requisitions and reports but cannot create requisitions." });
                 var userId = GetUserId();
                 var requisition = await _requisitionService.CreateRequisitionAsync(dto, userId);
 
@@ -109,7 +111,7 @@ namespace UCP.API.Controllers
             {
                 var userId = GetUserId();
                 var requisition = await _requisitionService.GetRequisitionAsync(id, userId);
-                var signerIds = new[] { requisition.RequisitorId, requisition.FirstSeniorApproverId, requisition.SecondSeniorApproverId, requisition.ApprovedById, requisition.MoneyReadyById, requisition.CollectedById }.Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+                var signerIds = new[] { requisition.RequisitorId, requisition.FirstSeniorApproverId, requisition.SecondSeniorApproverId, requisition.TreasurerApproverId, requisition.AccountantApproverId, requisition.ChurchAuthorityApproverId, requisition.MinisterApproverId, requisition.ApprovedById, requisition.MoneyReadyById, requisition.CollectedById }.Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
                 var signers = await _context.Users.Where(u => signerIds.Contains(u.Id)).Select(u => new { u.Id, u.FirstName, u.LastName, u.Role, u.SignatureData }).ToListAsync();
 
                 return Ok(new
@@ -122,6 +124,10 @@ namespace UCP.API.Controllers
                     requisition.RequisitorId,
                     requisition.FirstSeniorApproverId,
                     requisition.SecondSeniorApproverId,
+                    requisition.TreasurerApproverId,
+                    requisition.AccountantApproverId,
+                    requisition.ChurchAuthorityApproverId,
+                    requisition.MinisterApproverId,
                     requisition.ApprovedById,
                     requisition.MoneyReadyById,
                     requisition.CollectedById,
@@ -225,6 +231,8 @@ namespace UCP.API.Controllers
         {
             try
             {
+                if (_currentUserService.GetUserRole() == nameof(UserRole.Admin))
+                    return StatusCode(403, new { message = "Administrators cannot edit requisitions." });
                 var userId = GetUserId();
                 var requisition = await _requisitionService.UpdateRequisitionAsync(id, dto, userId);
 
@@ -602,14 +610,15 @@ namespace UCP.API.Controllers
             var requiredRole = status switch
             {
                 "SENIOR_REPS_PENDING" => "SeniorRep",
-                "CHURCH_AUTH_PENDING" => "ChurchAuth",
+                "CHURCH_AUTH_PENDING" => null,
                 "MINISTER_PENDING" => "Minister",
                 _ => null
             };
 
             // If no required role (e.g., DRAFT, APPROVED, etc.), only SuperAdmin can act (already handled)
-            if (requiredRole == null)
-                return false;
+            if (status == "CHURCH_AUTH_PENDING")
+                return new[] { "Treasurer", "Accountant", "ChurchAuth", "Secretary" }.Contains(user.Role);
+            if (requiredRole == null) return false;
 
             return user.Role == requiredRole;
         }

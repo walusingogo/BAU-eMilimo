@@ -270,7 +270,7 @@ namespace UCP.API.Controllers
                 .Where(x => !x.IsArchived && x.ConfigKey.ToLower() == "frontend_base_url")
                 .Select(x => x.ConfigValue)
                 .FirstOrDefaultAsync();
-            var frontendUrl = (configuredBaseUrl ?? _config["Frontend:Url"] ?? "http://localhost:4200").Trim().TrimEnd('/');
+            var frontendUrl = (configuredBaseUrl ?? _config["Frontend:Url"] ?? "http://192.168.1.178:4200").Trim().TrimEnd('/');
             var resetLink = $"{frontendUrl}/reset-password?token={Uri.EscapeDataString(resetToken)}";
 
             // The reset token is only ever delivered via email — it must never

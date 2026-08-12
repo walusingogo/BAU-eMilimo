@@ -131,6 +131,28 @@ public class EmailService : IEmailService
         return SendAsync(toEmail, $"Asset request {requestNumber}: {statusText}", html, cancellationToken, "AssetRequestStatusChange");
     }
 
+    public Task SendApprovalActionRequiredAsync(string toEmail, string recipientName, string processName,
+        string recordNumber, string summary, string approvalUrl, string[] actions,
+        CancellationToken cancellationToken = default)
+    {
+        var actionList = string.Join(" &nbsp;•&nbsp; ", actions.Select(WebUtility.HtmlEncode));
+        var body = $"""
+            <div style="padding:18px;background:#F8F1E4;border:1px solid #E8DDC8;border-radius:8px;margin-bottom:20px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:#8A7F6A;">{WebUtility.HtmlEncode(processName)}</div>
+              <div style="font-size:20px;font-weight:750;color:#1F3A5F;margin-top:4px;">{WebUtility.HtmlEncode(recordNumber)}</div>
+              <div style="font-size:13px;color:#4B4436;margin-top:8px;">{WebUtility.HtmlEncode(summary)}</div>
+            </div>
+            <p style="margin:0 0 12px;">This request requires your review. Available actions:</p>
+            <p style="margin:0 0 24px;color:#8A651F;font-size:13px;font-weight:650;">{actionList}</p>
+            <div style="text-align:center;margin:26px 0 18px;">
+              <a href="{WebUtility.HtmlEncode(approvalUrl)}" style="display:inline-block;background:#1F3A5F;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:7px;">Open request for review</a>
+            </div>
+            <p style="margin:0;color:#8A7F6A;font-size:12px;">For security, you may be asked to sign in. The system will return you directly to this request.</p>
+            """;
+        return SendAsync(toEmail, $"Approval required: {processName} {recordNumber}",
+            BuildEmail("Approval required", $"Hi {recipientName},", body), cancellationToken, "ApprovalActionRequired");
+    }
+
     public Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
         => SendAsync(toEmail, subject, htmlBody, cancellationToken, "General");
 

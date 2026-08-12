@@ -53,6 +53,10 @@ namespace UCP.Core.Entities
         public User? ArchivedBy { get; set; }
         public Guid? FirstSeniorApproverId { get; set; }
         public Guid? SecondSeniorApproverId { get; set; }
+        public Guid? TreasurerApproverId { get; set; }
+        public Guid? AccountantApproverId { get; set; }
+        public Guid? ChurchAuthorityApproverId { get; set; }
+        public Guid? MinisterApproverId { get; set; }
         
         // Collections
         public ICollection<RequisitionItem>? Items { get; set; }

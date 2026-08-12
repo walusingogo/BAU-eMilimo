@@ -20,3 +20,7 @@ C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build\Debug\net8.0\UCP.Infrastructure.pdb
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build\Debug\net8.0\UCP.Core.dll
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Infrastructure\.codex-build\Debug\net8.0\UCP.Core.pdb
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\.build-verification\UCP.Infrastructure.deps.json
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\.build-verification\UCP.Infrastructure.runtimeconfig.json
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\.build-verification\UCP.Infrastructure.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\.build-verification\UCP.Infrastructure.pdb

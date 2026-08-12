@@ -135,6 +135,8 @@ namespace UCP.API.Controllers
         {
             try
             {
+                if (_currentUserService.GetUserRole() == nameof(UserRole.Admin))
+                    return StatusCode(403, new { message = "Administrators may view contributions and reports but cannot create contributions." });
                 dto.Allocations = ParseAllocations(dto.AllocationsJson ?? string.Empty);
                 var userId = GetUserId();
                 var contribution = await _contributionService.CreateContributionAsync(dto, userId);
@@ -346,6 +348,8 @@ namespace UCP.API.Controllers
         {
             try
             {
+                if (_currentUserService.GetUserRole() == nameof(UserRole.Admin))
+                    return StatusCode(403, new { message = "Administrators cannot edit contributions." });
                 var userId = GetUserId();
 
                 // AllocationsJson is optional. When it is omitted, existing

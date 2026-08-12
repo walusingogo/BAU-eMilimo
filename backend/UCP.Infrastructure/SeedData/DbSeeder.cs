@@ -610,7 +610,7 @@ namespace UCP.Infrastructure.SeedData
                 {
                     Id = Guid.NewGuid(),
                     ConfigKey = "frontend_base_url",
-                    ConfigValue = "http://localhost:4200",
+                    ConfigValue = "http://192.168.1.178:4200",
                     Description = "Public frontend base URL used for password reset links and other email links",
                     CreatedDate = DateTime.UtcNow,
                     UpdatedDate = DateTime.UtcNow,
@@ -618,6 +618,17 @@ namespace UCP.Infrastructure.SeedData
                     Version = 1
                 });
                 await context.SaveChangesAsync();
+            }
+            else
+            {
+                var frontendBaseUrl = await context.SystemConfigs.FirstAsync(x => x.ConfigKey == "frontend_base_url");
+                if (frontendBaseUrl.ConfigValue.Contains("localhost", StringComparison.OrdinalIgnoreCase) || frontendBaseUrl.ConfigValue.Contains("127.0.0.1"))
+                {
+                    frontendBaseUrl.ConfigValue = "http://192.168.1.178:4200";
+                    frontendBaseUrl.UpdatedDate = DateTime.UtcNow;
+                    frontendBaseUrl.Version++;
+                    await context.SaveChangesAsync();
+                }
             }
 
             // ============================================

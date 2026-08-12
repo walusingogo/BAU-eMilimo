@@ -16,7 +16,11 @@ public class RolePermissionService : IRolePermissionService
         if(string.IsNullOrWhiteSpace(role))return [];
         if(role==UserRole.SuperAdmin.ToString())return RolePermissionDefaults.All;
         var json=await _context.RolePermissions.Where(x=>x.Role==role).Select(x=>x.PermissionsJson).FirstOrDefaultAsync();
-        if(json!=null)try{return JsonSerializer.Deserialize<string[]>(json)??[];}catch(JsonException){}
+        if(json!=null)try
+        {
+            var stored=JsonSerializer.Deserialize<string[]>(json)??[];
+            return role==UserRole.Admin.ToString()?stored.Where(p=>p is not "requisitions.initiate" and not "contributions.initiate").ToArray():stored;
+        }catch(JsonException){}
         return RolePermissionDefaults.For(role);
     }
 }
@@ -26,7 +30,7 @@ public static class RolePermissionDefaults
     public static string[] For(string role)=>role switch
     {
         "SuperAdmin"=>All,
-        "Admin"=>All,
+        "Admin"=>All.Where(p=>p is not "requisitions.initiate" and not "contributions.initiate").ToArray(),
         "Auditor"=>["requisitions.view","contributions.view","reports.view","assets.view","assets.reports"],
         "Accountant"=>["requisitions.view","requisitions.disburse","contributions.view","contributions.confirm","reports.view","assets.view","assets.request","assets.reports"],
         "SeniorRep" or "ChurchAuth" or "Minister"=>["requisitions.view","requisitions.approve","contributions.view","reports.view","assets.view","assets.request","assets.approve","assets.reports"],

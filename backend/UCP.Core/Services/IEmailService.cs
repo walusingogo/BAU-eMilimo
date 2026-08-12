@@ -46,6 +46,9 @@ namespace UCP.Core.Services
             string assetName, int quantity, string newStatus, DateTime expectedOutAtUtc,
             DateTime expectedReturnAtUtc, bool paymentRequired, decimal? paymentAmount, string? note,
             CancellationToken cancellationToken = default);
+        Task SendApprovalActionRequiredAsync(string toEmail, string recipientName, string processName,
+            string recordNumber, string summary, string approvalUrl, string[] actions,
+            CancellationToken cancellationToken = default);
         Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default);
         Task SendTestEmailAsync(string toEmail, CancellationToken cancellationToken = default);
     }

@@ -27,7 +27,9 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:4200")
+        var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://192.168.1.178:4200"];
+        policy.WithOrigins(origins)
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials();
@@ -109,6 +111,7 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 });
 
 builder.Services.AddScoped<UCP.API.Services.IRolePermissionService, UCP.API.Services.RolePermissionService>();
+builder.Services.AddScoped<UCP.API.Services.IApprovalNotificationService, UCP.API.Services.ApprovalNotificationService>();
 builder.Services.AddSingleton<UCP.API.Services.ISystemLogWriter, UCP.API.Services.SystemLogWriter>();
 builder.Services.AddHostedService<UCP.API.Services.ApplicationLifecycleLogger>();
 builder.Services.AddSingleton<ISmtpSettingsProvider, SmtpSettingsProvider>();

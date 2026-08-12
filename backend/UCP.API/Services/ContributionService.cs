@@ -22,6 +22,7 @@ namespace UCP.API.Services
         private readonly ICurrentUserService _currentUserService;
         private readonly IEmailService _emailService;
         private readonly ISystemLogWriter _logWriter;
+        private readonly IApprovalNotificationService _approvalNotifications;
 
         public ContributionService(
             AppDbContext context,
@@ -31,7 +32,8 @@ namespace UCP.API.Services
             IGroupAccessService groupAccess,
             ICurrentUserService currentUserService,
             IEmailService emailService,
-            ISystemLogWriter logWriter)
+            ISystemLogWriter logWriter,
+            IApprovalNotificationService approvalNotifications)
         {
             _context = context;
             _logger = logger;
@@ -41,6 +43,7 @@ namespace UCP.API.Services
             _currentUserService = currentUserService;
             _emailService = emailService;
             _logWriter = logWriter;
+            _approvalNotifications = approvalNotifications;
         }
 
         /// <summary>
@@ -55,6 +58,11 @@ namespace UCP.API.Services
         {
             try
             {
+                if (contribution.Status == ContributionStatus.PENDING.ToString())
+                    await _approvalNotifications.NotifyAsync("contributions.confirm", "Contribution",
+                        contribution.ContributionNumber, $"ZMW {contribution.Amount:N2} requires confirmation.",
+                        $"contributions/{contribution.Id}", contribution.CreatedById, allowedRoles: [nameof(UserRole.Accountant)]);
+
                 if (!contribution.CreatedById.HasValue)
                     return;
 
@@ -265,6 +273,14 @@ namespace UCP.API.Services
                     await UploadAttachmentsAsync(contribution.Id, request.Files, userId);
                 }
 
+                if (contribution.Status == ContributionStatus.PENDING.ToString())
+                {
+                    var submitter = await _context.Users.FindAsync(userId);
+                    await NotifyContributionStatusChangedAsync(contribution,
+                        submitter != null ? $"{submitter.FirstName} {submitter.LastName}" : "the creator",
+                        "This contribution has been submitted for confirmation.");
+                }
+
                 return await GetContributionByIdAsync(contribution.Id)
                     ?? throw new Exception("Failed to retrieve created contribution");
             }
@@ -281,6 +297,10 @@ namespace UCP.API.Services
 
         public async Task<ContributionResponse> ConfirmContributionAsync(Guid contributionId, Guid userId)
         {
+            var actingUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+            if (actingUser == null || (actingUser.Role != UserRole.Accountant.ToString() && actingUser.Role != UserRole.SuperAdmin.ToString()))
+                throw new UnauthorizedAccessException("Only an Accountant can confirm a contribution.");
+
             var contribution = await _context.Contributions
                 .Include(c => c.ContributionType)
                 .Include(c => c.Source)
@@ -408,6 +428,10 @@ namespace UCP.API.Services
 
         public async Task<ContributionResponse> RejectContributionAsync(Guid contributionId, RejectContributionDto dto, Guid userId)
         {
+            var actingUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+            if (actingUser == null || (actingUser.Role != UserRole.Accountant.ToString() && actingUser.Role != UserRole.SuperAdmin.ToString()))
+                throw new UnauthorizedAccessException("Only an Accountant can reject a contribution.");
+
             var contribution = await _context.Contributions
                 .FirstOrDefaultAsync(c => c.Id == contributionId);
 
