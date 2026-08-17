@@ -1,0 +1,4 @@
+.license-secrets/
+**/license-private*.pem
+**/license-private*.pfx
+

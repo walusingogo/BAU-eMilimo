@@ -34,6 +34,14 @@ namespace UCP.Core.Entities
         [MaxLength(1000)]
         public string? FailureReason { get; set; }
 
+        /// <summary>Data-protected rendered message retained so a failed delivery can be retried.</summary>
+        public string? HtmlBody { get; set; }
+
+        [MaxLength(2000)]
+        public string? CcEmails { get; set; }
+
+        public Guid? RetryOfEmailLogId { get; set; }
+
         public Guid? TriggeredByUserId { get; set; }
     }
 }

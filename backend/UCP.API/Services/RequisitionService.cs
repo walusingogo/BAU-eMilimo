@@ -9,6 +9,7 @@ using UCP.Core.Enums;
 using UCP.Core.Services;
 using UCP.Core.Utils;
 using UCP.Infrastructure.Data;
+using UCP.API.Platform;
 
 namespace UCP.API.Services
 {
@@ -22,6 +23,7 @@ namespace UCP.API.Services
         private readonly IEmailService _emailService;
         private readonly ISystemLogWriter _logWriter;
         private readonly IApprovalNotificationService _approvalNotifications;
+        private readonly IFileStorage _fileStorage;
 
         public RequisitionService(
             AppDbContext context,
@@ -31,7 +33,8 @@ namespace UCP.API.Services
             IGroupAccessService groupAccess,
             IEmailService emailService,
             ISystemLogWriter logWriter,
-            IApprovalNotificationService approvalNotifications)
+            IApprovalNotificationService approvalNotifications,
+            IFileStorage fileStorage)
         {
             _emailService = emailService;
             _logWriter = logWriter;
@@ -41,6 +44,7 @@ namespace UCP.API.Services
             _logger = logger;
             _groupAccess = groupAccess;
             _approvalNotifications = approvalNotifications;
+            _fileStorage = fileStorage;
         }
 
         // ============================================
@@ -55,7 +59,11 @@ namespace UCP.API.Services
 
             var query = _context.Requisitions.AsQueryable();
 
-            if (user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
+            if (user.Role == UserRole.GroupRep.ToString())
+            {
+                query = query.Where(r => r.RequisitorId == userId);
+            }
+            else if (user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
             {
                 var groups = await _groupAccess.GetAccessibleGroupIdsAsync();
                 var sections = await _groupAccess.GetAccessibleSectionIdsAsync();
@@ -228,6 +236,9 @@ namespace UCP.API.Services
             if (user == null)
                 throw new UnauthorizedAccessException("User not found.");
 
+            if (user.Role == UserRole.GroupRep.ToString() && requisition.RequisitorId != userId)
+                throw new KeyNotFoundException("Requisition not found.");
+
             if (requisition.RequisitorId != userId &&
                 user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
             {
@@ -256,7 +267,11 @@ namespace UCP.API.Services
                 .Include(r => r.Requisitor)
                 .AsQueryable();
 
-            if (user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
+            if (user.Role == UserRole.GroupRep.ToString())
+            {
+                query = query.Where(r => r.RequisitorId == userId);
+            }
+            else if (user.Role != UserRole.SuperAdmin.ToString() && user.Role != UserRole.Admin.ToString())
             {
                 var groups = await _groupAccess.GetAccessibleGroupIdsAsync();
                 var sections = await _groupAccess.GetAccessibleSectionIdsAsync();
@@ -294,7 +309,10 @@ namespace UCP.API.Services
                 query = query.Where(r => r.CreatedDate <= toDateUtc);
             }
 
-            return await query.ToListAsync();
+            return await query
+                .OrderBy(r => r.Items!.Select(i => i.Description).Min() ?? string.Empty)
+                .ThenBy(r => r.RequisitionNumber)
+                .ToListAsync();
         }
 
         private static DateTime NormalizeUtc(DateTime value) => value.Kind switch
@@ -677,6 +695,72 @@ namespace UCP.API.Services
         }
 
         // ============================================
+        // RETURN FOR CORRECTIONS
+        // ============================================
+
+        public async Task<Requisition> ReturnRequisitionAsync(Guid id, RejectRequisitionDto dto, Guid userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Reason))
+                throw new InvalidOperationException("A correction reason is required.");
+
+            var requisition = await LoadRequisitionAsync(id);
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
+                throw new UnauthorizedAccessException("User not found.");
+
+            var pendingStatuses = new[]
+            {
+                RequisitionStatus.SENIOR_REPS_PENDING.ToString(),
+                RequisitionStatus.CHURCH_AUTH_PENDING.ToString(),
+                RequisitionStatus.MINISTER_PENDING.ToString()
+            };
+            if (!pendingStatuses.Contains(requisition.Status))
+                throw new InvalidOperationException("Only a pending requisition can be returned for corrections.");
+
+            var canReturn = user.Role == UserRole.SuperAdmin.ToString();
+            if (!canReturn && requisition.Status == RequisitionStatus.SENIOR_REPS_PENDING.ToString())
+                canReturn = user.Role == UserRole.SeniorRep.ToString() && await BelongsToRequestingEntityAsync(user, requisition);
+            else if (!canReturn && requisition.Status == RequisitionStatus.CHURCH_AUTH_PENDING.ToString())
+                canReturn = user.Role is nameof(UserRole.Treasurer) or nameof(UserRole.Accountant) or nameof(UserRole.ChurchAuth) or nameof(UserRole.Secretary);
+            else if (!canReturn && requisition.Status == RequisitionStatus.MINISTER_PENDING.ToString())
+                canReturn = user.Role == UserRole.Minister.ToString();
+
+            if (!canReturn)
+                throw new UnauthorizedAccessException("You are not authorized to return this requisition at its current stage.");
+
+            var balance = await GetCurrentBalance(requisition.GroupId, requisition.SectionId, requisition.CommitteeId);
+            if (balance != null)
+            {
+                var fundSource = Enum.Parse<FundSource>(requisition.FundSource);
+                if (fundSource == FundSource.Budgeted)
+                    balance.CommittedBudgetedBalance = Math.Max(0, balance.CommittedBudgetedBalance - requisition.Amount);
+                else if (fundSource == FundSource.OwnFunds)
+                    balance.CommittedOwnFundsBalance = Math.Max(0, balance.CommittedOwnFundsBalance - requisition.Amount);
+                balance.UpdatedDate = DateTime.UtcNow;
+                balance.Version++;
+            }
+
+            requisition.Status = RequisitionStatus.DRAFT.ToString();
+            requisition.RejectionReason = dto.Reason.Trim();
+            requisition.FirstSeniorApproverId = null;
+            requisition.SecondSeniorApproverId = null;
+            requisition.TreasurerApproverId = null;
+            requisition.AccountantApproverId = null;
+            requisition.ChurchAuthorityApproverId = null;
+            requisition.MinisterApproverId = null;
+            requisition.ApprovedById = null;
+            requisition.ApprovedAt = null;
+            requisition.UpdatedDate = DateTime.UtcNow;
+            requisition.UpdatedById = userId;
+            requisition.LastProcessedTimeStamp = DateTime.UtcNow;
+            requisition.Version++;
+            await _context.SaveChangesAsync();
+
+            await NotifyRequisitionStatusChangedAsync(requisition, $"{user.FirstName} {user.LastName}", dto.Reason.Trim());
+            return requisition;
+        }
+
+        // ============================================
         // MONEY READY
         // ============================================
 
@@ -829,21 +913,13 @@ namespace UCP.API.Services
             {
                 if (requisition.Status.EndsWith("_PENDING", StringComparison.OrdinalIgnoreCase))
                 {
-                    var roles = requisition.Status switch
-                    {
-                        "SENIOR_REPS_PENDING" => new[] { nameof(UserRole.SeniorRep) },
-                        "CHURCH_AUTH_PENDING" => new[] { nameof(UserRole.Treasurer), nameof(UserRole.Accountant), nameof(UserRole.ChurchAuth), nameof(UserRole.Secretary) },
-                        "MINISTER_PENDING" => new[] { nameof(UserRole.Minister) },
-                        _ => Array.Empty<string>()
-                    };
-                    var restrictEntity = requisition.Status == "SENIOR_REPS_PENDING";
+                    var ccRoles = new List<string>();
+                    if (requisition.Amount > await MinisterApprovalThresholdAsync()) ccRoles.Add(nameof(UserRole.Minister));
                     await _approvalNotifications.NotifyAsync("requisitions.approve", "Requisition",
                         requisition.RequisitionNumber, $"ZMW {requisition.Amount:N2} requires approval.",
                         $"requisitions/approvals/{requisition.Id}", requisition.RequisitorId,
-                        allowedRoles: roles,
-                        groupId: restrictEntity ? requisition.GroupId : null,
-                        sectionId: restrictEntity ? requisition.SectionId : null,
-                        committeeId: restrictEntity ? requisition.CommitteeId : null);
+                        allowedRoles: [nameof(UserRole.Accountant)],
+                        ccUserId: requisition.RequisitorId, ccRoles: ccRoles.ToArray());
                 }
 
                 if (!requisition.RequisitorId.HasValue)
@@ -925,7 +1001,7 @@ namespace UCP.API.Services
             if (string.IsNullOrEmpty(relativePath))
                 return string.Empty;
             var trimmed = relativePath.TrimStart('/');
-            return Path.Combine(_webHostEnvironment.WebRootPath, trimmed);
+            return _fileStorage.GetPhysicalPath(trimmed);
         }
 
         // ============================================

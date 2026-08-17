@@ -17,7 +17,7 @@ namespace UCP.Core.DTOs
         [Required(ErrorMessage = "ConfigKey is required.")]
         public string ConfigKey { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "ConfigValue is required.")]
+        [Required(AllowEmptyStrings = true, ErrorMessage = "ConfigValue is required.")]
         public string ConfigValue { get; set; } = string.Empty;
 
         public string? Description { get; set; }
@@ -28,7 +28,7 @@ namespace UCP.Core.DTOs
         [Required(ErrorMessage = "ConfigKey is required.")]
         public string ConfigKey { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "ConfigValue is required.")]
+        [Required(AllowEmptyStrings = true, ErrorMessage = "ConfigValue is required.")]
         public string ConfigValue { get; set; } = string.Empty;
 
         public string? Description { get; set; }

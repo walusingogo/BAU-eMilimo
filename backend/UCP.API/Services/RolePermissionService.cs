@@ -19,7 +19,12 @@ public class RolePermissionService : IRolePermissionService
         if(json!=null)try
         {
             var stored=JsonSerializer.Deserialize<string[]>(json)??[];
-            return role==UserRole.Admin.ToString()?stored.Where(p=>p is not "requisitions.initiate" and not "contributions.initiate").ToArray():stored;
+            if(role==UserRole.Admin.ToString())return stored.Where(p=>p is not "requisitions.initiate" and not "contributions.initiate").ToArray();
+            // These permissions are part of the configured approval workflow,
+            // so an older saved role row must not silently prevent routing or action.
+            if(role is nameof(UserRole.Accountant) or nameof(UserRole.Treasurer))return stored.Append("contributions.confirm").Distinct().ToArray();
+            if(role==UserRole.Accountant.ToString())return stored.Append("requisitions.approve").Distinct().ToArray();
+            return stored;
         }catch(JsonException){}
         return RolePermissionDefaults.For(role);
     }
@@ -32,10 +37,11 @@ public static class RolePermissionDefaults
         "SuperAdmin"=>All,
         "Admin"=>All.Where(p=>p is not "requisitions.initiate" and not "contributions.initiate").ToArray(),
         "Auditor"=>["requisitions.view","contributions.view","reports.view","assets.view","assets.reports"],
-        "Accountant"=>["requisitions.view","requisitions.disburse","contributions.view","contributions.confirm","reports.view","assets.view","assets.request","assets.reports"],
-        "SeniorRep" or "ChurchAuth" or "Minister"=>["requisitions.view","requisitions.approve","contributions.view","reports.view","assets.view","assets.request","assets.approve","assets.reports"],
+        "Accountant"=>["requisitions.view","requisitions.approve","requisitions.disburse","contributions.view","contributions.confirm","reports.view","assets.view","assets.request","assets.reports"],
+        "SeniorRep"=>["requisitions.view","requisitions.approve","contributions.view","reports.view","assets.view","assets.request","assets.approve","assets.reports"],
+        "ChurchAuth" or "Minister"=>["requisitions.view","requisitions.approve","contributions.view","reports.view","assets.view","assets.request","assets.approve","assets.reports"],
         "GroupRep"=>["requisitions.view","requisitions.initiate","contributions.view","contributions.initiate","reports.view","assets.view","assets.request"],
-        "Treasurer"=>["requisitions.view","contributions.view","contributions.initiate","reports.view","assets.view","assets.request","assets.reports"],
+        "Treasurer"=>["requisitions.view","contributions.view","contributions.initiate","contributions.confirm","reports.view","assets.view","assets.request","assets.reports"],
         "Secretary"=>["requisitions.view","requisitions.initiate","contributions.view","contributions.initiate","reports.view","assets.view","assets.request","assets.approve","assets.reports"],
         _=>["requisitions.view","contributions.view","assets.view","assets.request"]
     };

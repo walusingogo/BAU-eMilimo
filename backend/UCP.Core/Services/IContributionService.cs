@@ -26,6 +26,7 @@ namespace UCP.Core.Services
 
         Task<ContributionResponse> UpdateContributionAsync(Guid contributionId, UpdateContributionDto dto, Guid userId);
         Task<ContributionResponse> RejectContributionAsync(Guid contributionId, RejectContributionDto dto, Guid userId);
+        Task<ContributionResponse> ReturnContributionAsync(Guid contributionId, RejectContributionDto dto, Guid userId);
         Task<ContributionResponse> SubmitContributionAsync(Guid contributionId, Guid userId);
         Task ArchiveContributionAsync(Guid contributionId, ArchiveContributionDto dto, Guid userId);
 

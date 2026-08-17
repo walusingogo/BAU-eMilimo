@@ -1,6 +1,10 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Mail;
 using System.Net.Mime;
+using System.Net.Sockets;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using UCP.Core.Entities;
 using UCP.Core.Services;
@@ -32,14 +36,20 @@ public class EmailService : IEmailService
     private readonly ILogger<EmailService> _logger;
     private readonly ISystemLogWriter _logWriter;
     private readonly IWebHostEnvironment _environment;
+    private readonly IEmailDeliveryQueue _deliveryQueue;
+    private readonly IDataProtector _emailPayloadProtector;
+    private readonly ICommunicationService _communication;
 
-    public EmailService(ISmtpSettingsProvider settingsProvider, AppDbContext context, ILogger<EmailService> logger, ISystemLogWriter logWriter, IWebHostEnvironment environment)
+    public EmailService(ISmtpSettingsProvider settingsProvider, AppDbContext context, ILogger<EmailService> logger, ISystemLogWriter logWriter, IWebHostEnvironment environment, IEmailDeliveryQueue deliveryQueue, IDataProtectionProvider dataProtection, ICommunicationService communication)
     {
         _settingsProvider = settingsProvider;
         _context = context;
         _logger = logger;
         _logWriter = logWriter;
         _environment = environment;
+        _deliveryQueue = deliveryQueue;
+        _emailPayloadProtector = dataProtection.CreateProtector("UCP.EmailLog.RetryPayload.v1");
+        _communication = communication;
     }
 
     public Task SendPasswordResetAsync(string toEmail, string recipientName, string resetLink, CancellationToken cancellationToken = default)
@@ -55,7 +65,25 @@ public class EmailService : IEmailService
                 <p>This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
                 """);
 
-        return SendAsync(toEmail, "Reset your UCZ Trinity Congregation password", body, cancellationToken, "PasswordReset");
+        return SendAsync(toEmail, "Reset your UCZ Trinity Congregation password", body, cancellationToken, "PasswordReset",
+            companionMessage: $"Password reset requested. Use this secure link within 1 hour: {resetLink}");
+    }
+
+    public Task SendTemporaryPasswordAsync(string toEmail, string recipientName, string temporaryPassword, CancellationToken cancellationToken = default)
+    {
+        var body = BuildEmail(
+            title: "Your temporary password",
+            greeting: $"Hi {recipientName},",
+            bodyHtml: $"""
+                <p>An administrator reset your account password.</p>
+                <div style="margin:24px 0;padding:16px;background:#F3F5F7;border:1px solid #D9DEE5;border-radius:8px;text-align:center;">
+                    <div style="font-size:12px;color:#64748B;margin-bottom:6px;">TEMPORARY PASSWORD</div>
+                    <strong style="font-family:monospace;font-size:20px;letter-spacing:2px;color:#241C15;">{WebUtility.HtmlEncode(temporaryPassword)}</strong>
+                </div>
+                <p>Please sign in and change this temporary password immediately. Do not share it with anyone.</p>
+                """);
+        return SendAsync(toEmail, "Your temporary account password", body, cancellationToken, "TemporaryPassword",
+            companionMessage: $"Your temporary UCP password is: {temporaryPassword}. Sign in and change it immediately. Do not share it.");
     }
 
     public Task SendAccountActivatedAsync(string toEmail, string recipientName, CancellationToken cancellationToken = default)
@@ -65,7 +93,8 @@ public class EmailService : IEmailService
             greeting: $"Hi {recipientName},",
             bodyHtml: "<p>Your UCZ Trinity Congregation account has been activated. You can now sign in.</p>");
 
-        return SendAsync(toEmail, "Your UCZ Trinity Congregation account is active", body, cancellationToken, "AccountActivation");
+        return SendAsync(toEmail, "Your UCZ Trinity Congregation account is active", body, cancellationToken, "AccountActivation",
+            companionMessage: "Your UCP account has been activated. You can now sign in.");
     }
 
     public Task SendAccountDeactivatedAsync(string toEmail, string recipientName, CancellationToken cancellationToken = default)
@@ -75,7 +104,8 @@ public class EmailService : IEmailService
             greeting: $"Hi {recipientName},",
             bodyHtml: "<p>Your UCZ Trinity Congregation account has been deactivated. If you believe this is a mistake, please contact your administrator.</p>");
 
-        return SendAsync(toEmail, "Your UCZ Trinity Congregation account was deactivated", body, cancellationToken, "AccountDeactivation");
+        return SendAsync(toEmail, "Your UCZ Trinity Congregation account was deactivated", body, cancellationToken, "AccountDeactivation",
+            companionMessage: "Your UCP account has been deactivated. Contact your administrator if you believe this is a mistake.");
     }
 
     public Task SendRequisitionStatusChangedAsync(
@@ -88,7 +118,8 @@ public class EmailService : IEmailService
     {
         var body = BuildStatusEmail("Requisition update", $"Hi {recipientName},", "Requisition", requisitionNumber, newStatus, note);
 
-        return SendAsync(toEmail, $"Requisition {requisitionNumber}: {FormatStatus(newStatus)}", body, cancellationToken, "RequisitionStatusChange");
+        return SendAsync(toEmail, $"Requisition {requisitionNumber}: {FormatStatus(newStatus)}", body, cancellationToken, "RequisitionStatusChange",
+            companionMessage: $"Requisition {requisitionNumber} is now {FormatStatus(newStatus)}.{NoteText(note)}");
     }
 
     public Task SendContributionStatusChangedAsync(
@@ -101,7 +132,8 @@ public class EmailService : IEmailService
     {
         var body = BuildStatusEmail("Contribution update", $"Hi {recipientName},", "Contribution", contributionNumber, newStatus, note);
 
-        return SendAsync(toEmail, $"Contribution {contributionNumber}: {FormatStatus(newStatus)}", body, cancellationToken, "ContributionStatusChange");
+        return SendAsync(toEmail, $"Contribution {contributionNumber}: {FormatStatus(newStatus)}", body, cancellationToken, "ContributionStatusChange",
+            companionMessage: $"Contribution {contributionNumber} is now {FormatStatus(newStatus)}.{NoteText(note)}");
     }
 
     public Task SendAssetRequestStatusChangedAsync(string toEmail, string recipientName, string requestNumber,
@@ -128,12 +160,13 @@ public class EmailService : IEmailService
             {(string.IsNullOrWhiteSpace(note) ? "" : $"""<div style="padding:13px 16px;background:#FAF7F0;border-left:3px solid #B8862E;border-radius:4px;"><div style="font-size:11px;color:#8A7F6A;text-transform:uppercase;font-weight:700;">Reviewer comment</div><div style="margin-top:4px;color:#4B4436;">{WebUtility.HtmlEncode(note)}</div></div>""")}
             """;
         var html = BuildEmail("Asset request update", $"Hi {recipientName},", body);
-        return SendAsync(toEmail, $"Asset request {requestNumber}: {statusText}", html, cancellationToken, "AssetRequestStatusChange");
+        return SendAsync(toEmail, $"Asset request {requestNumber}: {statusText}", html, cancellationToken, "AssetRequestStatusChange",
+            companionMessage: $"Asset request {requestNumber} for {quantity:N0} x {assetName} is now {statusText}.{NoteText(note)}");
     }
 
     public Task SendApprovalActionRequiredAsync(string toEmail, string recipientName, string processName,
         string recordNumber, string summary, string approvalUrl, string[] actions,
-        CancellationToken cancellationToken = default)
+        IReadOnlyCollection<string>? ccEmails = null, CancellationToken cancellationToken = default)
     {
         var actionList = string.Join(" &nbsp;•&nbsp; ", actions.Select(WebUtility.HtmlEncode));
         var body = $"""
@@ -150,38 +183,74 @@ public class EmailService : IEmailService
             <p style="margin:0;color:#8A7F6A;font-size:12px;">For security, you may be asked to sign in. The system will return you directly to this request.</p>
             """;
         return SendAsync(toEmail, $"Approval required: {processName} {recordNumber}",
-            BuildEmail("Approval required", $"Hi {recipientName},", body), cancellationToken, "ApprovalActionRequired");
+            BuildEmail("Approval required", $"Hi {recipientName},", body), cancellationToken, "ApprovalActionRequired", ccEmails,
+            BuildApprovalCompanionMessage(processName, recordNumber, summary, approvalUrl, actions));
+    }
+
+    private static string BuildApprovalCompanionMessage(string processName, string recordNumber, string summary,
+        string approvalUrl, IReadOnlyCollection<string> actions)
+    {
+        // Keep the URL complete and on its own line. WhatsApp and SMS clients are much
+        // more reliable at linkifying an absolute URL when punctuation/text does not
+        // immediately surround it.
+        var url = approvalUrl.Trim();
+        var availableActions = string.Join(", ", actions.Where(x => !string.IsNullOrWhiteSpace(x)));
+        return $"Approval required\n\n{processName}: {recordNumber}\n{summary}\n\nAvailable actions: {availableActions}\n\nOpen request for review:\n{url}";
     }
 
     public Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
-        => SendAsync(toEmail, subject, htmlBody, cancellationToken, "General");
+        => SendAsync(toEmail, subject, htmlBody, cancellationToken, "General", companionMessage: subject);
 
     public Task SendTestEmailAsync(string toEmail, CancellationToken cancellationToken = default)
-        => SendAsync(toEmail, "UCZ Trinity Congregation SMTP test",
+        => DeliverQueuedAsync(new QueuedEmail(toEmail, "UCZ Trinity Congregation SMTP test",
             BuildEmail("SMTP test successful", "Hello,", "<p>Your database-managed email settings are working correctly.</p>"),
-            cancellationToken, "TestEmail");
+            "TestEmail", []), cancellationToken);
 
     // ============================================
     // INTERNAL SEND + TEMPLATE HELPERS
     // ============================================
 
-    private async Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken, string action)
+    private async Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken, string action,
+        IReadOnlyCollection<string>? ccEmails = null, string? companionMessage = null)
     {
         if (string.IsNullOrWhiteSpace(toEmail))
         {
             return;
         }
 
-        var settings = await _settingsProvider.GetAsync(cancellationToken);
-
-        if (!settings.Enabled)
+        var queued = _deliveryQueue.Enqueue(new QueuedEmail(toEmail, subject, htmlBody, action,
+            (ccEmails ?? Array.Empty<string>()).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            CompanionMessage: companionMessage));
+        if (!queued)
         {
-            _logger.LogInformation("Email notifications are disabled (SMTP settings: Enabled=false); skipping {Action} email.", action);
-            return;
+            _logger.LogWarning("The email delivery queue is full; {Action} email was not queued.", action);
+            await RecordEmailLogAsync(toEmail, subject, action, "Failed", "The email delivery queue is full.", htmlBody, ccEmails);
         }
+    }
+
+    public async Task DeliverQueuedAsync(QueuedEmail queued, CancellationToken cancellationToken)
+    {
+        var toEmail = queued.ToEmail;
+        var subject = queued.Subject;
+        var htmlBody = queued.HtmlBody;
+        var action = queued.Action;
+        var ccEmails = queued.CcEmails;
+
+        SmtpSetting? settings = null;
+        var elapsed = Stopwatch.StartNew();
 
         try
         {
+            settings = await _settingsProvider.GetAsync(cancellationToken);
+
+            if (!settings.Enabled)
+            {
+                const string disabledReason = "Delivery was not attempted because SMTP notifications are disabled in System Settings.";
+                _logger.LogInformation("Email notifications are disabled (SMTP settings: Enabled=false); skipping {Action} email.", action);
+                await RecordEmailLogAsync(toEmail, subject, action, "Failed", disabledReason, htmlBody, ccEmails, queued.RetryOfEmailLogId);
+                return;
+            }
+
             using var message = new MailMessage
             {
                 From = new MailAddress(settings.FromEmail, settings.FromName),
@@ -190,6 +259,8 @@ public class EmailService : IEmailService
                 IsBodyHtml = true
             };
             message.To.Add(toEmail);
+            foreach (var cc in (ccEmails ?? Array.Empty<string>()).Where(x => !string.IsNullOrWhiteSpace(x) && !x.Equals(toEmail, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase))
+                message.CC.Add(cc);
 
             var logoPath = Path.Combine(_environment.WebRootPath ?? Path.Combine(_environment.ContentRootPath, "wwwroot"), "images", "ucz-logo.png");
             if (!File.Exists(logoPath))
@@ -217,9 +288,11 @@ public class EmailService : IEmailService
                     : new NetworkCredential(settings.Username, settings.Password)
             };
 
-            await client.SendMailAsync(message, cancellationToken);
+            using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCancellation.CancelAfter(settings.TimeoutMilliseconds);
+            await client.SendMailAsync(message, timeoutCancellation.Token);
 
-            await RecordEmailLogAsync(toEmail, subject, action, "Success", null);
+            await RecordEmailLogAsync(toEmail, subject, action, "Success", null, htmlBody, ccEmails, queued.RetryOfEmailLogId);
         }
         catch (Exception ex)
         {
@@ -228,7 +301,8 @@ public class EmailService : IEmailService
             // only enough to diagnose that a send failed and for what action.
             _logger.LogError(ex, "Failed to send {Action} email.", action);
 
-            await RecordEmailLogAsync(toEmail, subject, action, "Failed", ex.Message);
+            var failureReason = BuildEmailFailureReason(ex, settings, elapsed.Elapsed);
+            await RecordEmailLogAsync(toEmail, subject, action, "Failed", failureReason, htmlBody, ccEmails, queued.RetryOfEmailLogId);
 
             try
             {
@@ -239,7 +313,7 @@ public class EmailService : IEmailService
                     Process = "Notifications",
                     Action = action,
                     Message = $"Failed to send {action} notification email.",
-                    Exception = ex.Message
+                    Exception = failureReason
                 }, cancellationToken);
             }
             catch
@@ -247,9 +321,101 @@ public class EmailService : IEmailService
                 // Logging must never throw back into the caller either.
             }
         }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(queued.CompanionMessage) && !queued.RetryOfEmailLogId.HasValue)
+                await DeliverCompanionChannelsAsync(queued, cancellationToken);
+        }
     }
 
-    private async Task RecordEmailLogAsync(string toEmail, string subject, string category, string status, string? failureReason)
+    private async Task DeliverCompanionChannelsAsync(QueuedEmail queued, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var emails = queued.CcEmails.Append(queued.ToEmail).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var phones = await _context.Users.AsNoTracking()
+                .Where(x => emails.Contains(x.Email) && x.PhoneNumber != null && x.PhoneNumber != "")
+                .Select(x => x.PhoneNumber!).Distinct().ToListAsync(cancellationToken);
+            foreach (var phone in phones)
+            {
+                try { await _communication.SendSmsAsync(phone, queued.CompanionMessage!, cancellationToken, queued.Action); }
+                catch (Exception ex) { _logger.LogWarning(ex, "SMS companion delivery failed for {Action}.", queued.Action); }
+                try { await _communication.SendWhatsAppAsync(phone, queued.CompanionMessage!, cancellationToken, queued.Action); }
+                catch (Exception ex) { _logger.LogWarning(ex, "WhatsApp companion delivery failed for {Action}.", queued.Action); }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not resolve companion notification recipients for {Action}.", queued.Action);
+        }
+    }
+
+    private static string BuildEmailFailureReason(Exception exception, SmtpSetting? settings, TimeSpan elapsed)
+    {
+        var parts = new List<string> { "SMTP delivery failed" };
+
+        if (settings is not null)
+        {
+            parts.Add($"endpoint={settings.Host}:{settings.Port}");
+            parts.Add($"TLS={(settings.EnableSsl ? "enabled" : "disabled")}");
+            parts.Add($"timeout={settings.TimeoutMilliseconds}ms");
+        }
+        else
+        {
+            parts.Add("SMTP settings could not be loaded");
+        }
+
+        parts.Add($"elapsed={Math.Max(0, (long)elapsed.TotalMilliseconds)}ms");
+
+        var exceptions = new List<Exception>();
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is AggregateException aggregate)
+                exceptions.AddRange(aggregate.Flatten().InnerExceptions);
+            else
+                exceptions.Add(current);
+        }
+
+        var smtpException = exceptions.OfType<SmtpException>().FirstOrDefault();
+        if (smtpException is not null)
+            parts.Add($"SMTP status={smtpException.StatusCode}");
+
+        var socketException = exceptions.OfType<SocketException>().FirstOrDefault();
+        if (socketException is not null)
+        {
+            var socketSummary = socketException.SocketErrorCode switch
+            {
+                SocketError.TimedOut => "SMTP server did not respond before the connection timed out",
+                SocketError.ConnectionRefused => "SMTP server refused the connection",
+                SocketError.HostNotFound or SocketError.NoData or SocketError.TryAgain => "SMTP hostname could not be resolved",
+                SocketError.NetworkUnreachable or SocketError.HostUnreachable => "SMTP server is unreachable from this machine",
+                SocketError.ConnectionReset or SocketError.ConnectionAborted => "SMTP connection was closed unexpectedly",
+                _ => "SMTP network connection failed"
+            };
+            parts.Add($"socket={socketException.SocketErrorCode} ({socketException.NativeErrorCode}): {socketSummary}");
+        }
+
+        if (exceptions.Any(x => x is OperationCanceledException) && settings is not null)
+            parts.Add($"cause=SMTP operation exceeded the configured {settings.TimeoutMilliseconds / 1000d:0.#}-second timeout");
+
+        var messages = exceptions
+            .Select(x => CollapseWhitespace(x.Message))
+            .Where(x => !string.IsNullOrWhiteSpace(x) && !x.Equals("Failure sending mail.", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToArray();
+        if (messages.Length > 0)
+            parts.Add($"cause={string.Join(" -> ", messages)}");
+
+        var result = string.Join("; ", parts) + ".";
+        return result.Length <= 1000 ? result : result[..997] + "...";
+    }
+
+    private static string CollapseWhitespace(string value) =>
+        string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    private async Task RecordEmailLogAsync(string toEmail, string subject, string category, string status, string? failureReason,
+        string? htmlBody = null, IReadOnlyCollection<string>? ccEmails = null, Guid? retryOfEmailLogId = null)
     {
         try
         {
@@ -259,7 +425,10 @@ public class EmailService : IEmailService
                 Subject = subject,
                 Category = category,
                 Status = status,
-                FailureReason = failureReason
+                FailureReason = failureReason,
+                HtmlBody = string.IsNullOrWhiteSpace(htmlBody) ? null : _emailPayloadProtector.Protect(htmlBody),
+                CcEmails = ccEmails == null ? null : _emailPayloadProtector.Protect(string.Join(';', ccEmails)),
+                RetryOfEmailLogId = retryOfEmailLogId
             });
             await _context.SaveChangesAsync();
         }
@@ -274,6 +443,8 @@ public class EmailService : IEmailService
     private static string FormatStatus(string status) =>
         string.Join(' ', status.Split('_', StringSplitOptions.RemoveEmptyEntries)
             .Select(w => w.Length > 0 ? char.ToUpperInvariant(w[0]) + w[1..].ToLowerInvariant() : w));
+
+    private static string NoteText(string? note) => string.IsNullOrWhiteSpace(note) ? "" : $" Comment: {note.Trim()}";
 
     private static string StatusBadgeColor(string status) => status.ToUpperInvariant() switch
     {

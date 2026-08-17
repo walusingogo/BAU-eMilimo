@@ -82,6 +82,32 @@ namespace UCP.Infrastructure.SeedData
                 Console.WriteLine($"Added {groups.Count} groups.");
             }
 
+            var notificationPolicies = new[]
+            {
+                ("notification_contribution_to_roles", "Accountant,Treasurer", "Comma-separated roles placed in To for contribution approval notifications"),
+                ("notification_contribution_cc_roles", "", "Comma-separated roles copied on contribution approval notifications; the creator is notified only after approval"),
+                ("notification_requisition_to_roles", "Accountant", "Comma-separated roles placed in To for requisition approval notifications"),
+                ("notification_requisition_cc_roles", "Treasurer", "Comma-separated roles copied on requisition approval notifications; creator and threshold Minister are copied automatically"),
+                ("notification_asset_request_to_roles", "ChurchAuth,Secretary,Minister", "Comma-separated roles placed in To for asset request approval notifications"),
+                ("notification_asset_request_cc_roles", "Accountant,Treasurer", "Comma-separated roles copied on asset request approval notifications; the creator is copied automatically")
+            };
+            foreach (var policy in notificationPolicies)
+            {
+                var existingPolicy = await context.SystemConfigs.FirstOrDefaultAsync(x => x.ConfigKey == policy.Item1);
+                if (existingPolicy == null)
+                    context.SystemConfigs.Add(new SystemConfig { Id = Guid.NewGuid(), ConfigKey = policy.Item1, ConfigValue = policy.Item2, Description = policy.Item3, CreatedDate = DateTime.UtcNow, UpdatedDate = DateTime.UtcNow, Version = 1 });
+                else if (policy.Item1 == "notification_contribution_to_roles" && existingPolicy.ConfigValue.Equals("SeniorRep", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Migrate the short-lived senior-representative routing default
+                    // back to the established Accountant/Treasurer workflow.
+                    existingPolicy.ConfigValue = policy.Item2;
+                    existingPolicy.Description = policy.Item3;
+                    existingPolicy.UpdatedDate = DateTime.UtcNow;
+                    existingPolicy.Version++;
+                }
+            }
+            await context.SaveChangesAsync();
+
             // ============================================
             // CREATE COMMITTEES IF MISSING
             // ============================================
@@ -581,7 +607,7 @@ namespace UCP.Infrastructure.SeedData
                     {
                         Id = Guid.NewGuid(),
                         ConfigKey = "church_name",
-                        ConfigValue = "United Church of Zambia",
+                        ConfigValue = "UCZ Trinity Congregation",
                         Description = "Official church name",
                         CreatedDate = DateTime.UtcNow,
                         UpdatedDate = DateTime.UtcNow,
@@ -610,7 +636,7 @@ namespace UCP.Infrastructure.SeedData
                 {
                     Id = Guid.NewGuid(),
                     ConfigKey = "frontend_base_url",
-                    ConfigValue = "http://192.168.1.178:4200",
+                    ConfigValue = "http://172.20.10.5:4200",
                     Description = "Public frontend base URL used for password reset links and other email links",
                     CreatedDate = DateTime.UtcNow,
                     UpdatedDate = DateTime.UtcNow,
@@ -622,9 +648,9 @@ namespace UCP.Infrastructure.SeedData
             else
             {
                 var frontendBaseUrl = await context.SystemConfigs.FirstAsync(x => x.ConfigKey == "frontend_base_url");
-                if (frontendBaseUrl.ConfigValue.Contains("localhost", StringComparison.OrdinalIgnoreCase) || frontendBaseUrl.ConfigValue.Contains("127.0.0.1"))
+                if (frontendBaseUrl.ConfigValue.Contains("localhost", StringComparison.OrdinalIgnoreCase) || frontendBaseUrl.ConfigValue.Contains("127.0.0.1") || frontendBaseUrl.ConfigValue.Contains("192.168.1.178"))
                 {
-                    frontendBaseUrl.ConfigValue = "http://192.168.1.178:4200";
+                    frontendBaseUrl.ConfigValue = "http://172.20.10.5:4200";
                     frontendBaseUrl.UpdatedDate = DateTime.UtcNow;
                     frontendBaseUrl.Version++;
                     await context.SaveChangesAsync();

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using UCP.API.Services;
@@ -14,9 +15,14 @@ public class SmtpSettingsController : ControllerBase
     private readonly AppDbContext _context;
     private readonly ISmtpSettingsProvider _provider;
     private readonly IEmailService _email;
+    private readonly IEmailDeliveryQueue _deliveryQueue;
+    private readonly IDataProtector _emailPayloadProtector;
 
-    public SmtpSettingsController(AppDbContext context, ISmtpSettingsProvider provider, IEmailService email)
-        => (_context, _provider, _email) = (context, provider, email);
+    public SmtpSettingsController(AppDbContext context, ISmtpSettingsProvider provider, IEmailService email, IEmailDeliveryQueue deliveryQueue, IDataProtectionProvider dataProtection)
+    {
+        (_context, _provider, _email, _deliveryQueue) = (context, provider, email, deliveryQueue);
+        _emailPayloadProtector = dataProtection.CreateProtector("UCP.EmailLog.RetryPayload.v1");
+    }
 
     [HttpGet]
     public async Task<IActionResult> Get()
@@ -33,6 +39,8 @@ public class SmtpSettingsController : ControllerBase
     public async Task<IActionResult> Update(UpdateSmtpRequest request)
     {
         if (request.Port is < 1 or > 65535) return BadRequest(new { message = "SMTP port must be between 1 and 65535." });
+        if (request.TimeoutMilliseconds is < 5000 or > 300000)
+            return BadRequest(new { message = "SMTP timeout must be between 5 and 300 seconds." });
         var row = await _context.SmtpSettings.FirstOrDefaultAsync();
         if (row == null)
         {
@@ -59,7 +67,36 @@ public class SmtpSettingsController : ControllerBase
 
     [HttpGet("emails")]
     public async Task<IActionResult> Emails([FromQuery] int limit=100) => Ok(await _context.EmailLogs.AsNoTracking()
-        .OrderByDescending(x=>x.SentAtUtc).Take(Math.Clamp(limit,1,500)).ToListAsync());
+        .OrderByDescending(x=>x.SentAtUtc).Take(Math.Clamp(limit,1,500))
+        .Select(x => new { x.Id, x.SentAtUtc, x.ToEmail, x.Subject, x.Category, x.Status, x.FailureReason,
+            x.RetryOfEmailLogId, CanRetry = x.Status == "Failed" && x.HtmlBody != null }).ToListAsync());
+
+    [HttpPost("emails/{id:guid}/retry")]
+    public async Task<IActionResult> Retry(Guid id)
+    {
+        var original = await _context.EmailLogs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+        if (original == null) return NotFound(new { message = "Email delivery record was not found." });
+        if (original.Status != "Failed") return BadRequest(new { message = "Only failed email deliveries can be retried." });
+        if (string.IsNullOrWhiteSpace(original.HtmlBody))
+            return BadRequest(new { message = "This older email record does not contain a resendable message." });
+
+        string htmlBody;
+        string[] cc;
+        try
+        {
+            htmlBody = _emailPayloadProtector.Unprotect(original.HtmlBody);
+            cc = string.IsNullOrWhiteSpace(original.CcEmails) ? [] : _emailPayloadProtector.Unprotect(original.CcEmails)
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+        catch
+        {
+            return BadRequest(new { message = "The retained email payload can no longer be decrypted and cannot be retried." });
+        }
+        var queued = _deliveryQueue.Enqueue(new QueuedEmail(original.ToEmail, original.Subject, htmlBody,
+            original.Category, cc, original.Id));
+        if (!queued) return StatusCode(503, new { message = "The email queue is currently full. Please try again shortly." });
+        return Accepted(new { message = "Email retry queued successfully." });
+    }
 
     public record UpdateSmtpRequest(bool Enabled,string Host,int Port,bool EnableSsl,string Username,string? Password,string FromEmail,string FromName,int TimeoutMilliseconds);
     public record TestEmailRequest(string Email);

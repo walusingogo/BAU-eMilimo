@@ -471,6 +471,47 @@ namespace UCP.API.Controllers
             }
         }
 
+        // ============== RETURN FOR CORRECTIONS ==============
+        [HttpPost("{id:guid}/return")]
+        [RequirePermission("contributions.confirm")]
+        public async Task<IActionResult> ReturnContribution(Guid id, [FromBody] RejectContributionDto dto)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(dto.Reason))
+                    return BadRequest(new { Message = "A correction reason is required." });
+
+                var userId = GetUserId();
+                var contribution = await _contributionService.ReturnContributionAsync(id, dto, userId);
+                return Ok(new
+                {
+                    contribution.Id,
+                    contribution.ContributionNumber,
+                    contribution.Status,
+                    contribution.RejectionReason,
+                    contribution.Version,
+                    Message = "Contribution returned for corrections"
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error returning contribution {ContributionId} for corrections", id);
+                return StatusCode(500, new { Message = "An unexpected error occurred." });
+            }
+        }
+
         // ============== SUBMIT (NEW) ==============
         [HttpPut("{id:guid}/submit")]
         [RequirePermission("contributions.initiate")]

@@ -17,6 +17,7 @@ namespace UCP.Core.Services
         Task<Requisition> SubmitRequisitionAsync(Guid id, Guid userId);
         Task<Requisition> ApproveRequisitionAsync(Guid id, ApproveRequisitionDto dto, Guid userId);
         Task<Requisition> RejectRequisitionAsync(Guid id, RejectRequisitionDto dto, Guid userId);
+        Task<Requisition> ReturnRequisitionAsync(Guid id, RejectRequisitionDto dto, Guid userId);
         Task<Requisition> MarkMoneyReadyAsync(Guid id, Guid userId);
         Task<Requisition> CollectRequisitionAsync(Guid id, CollectRequisitionDto dto, Guid userId);
         Task ArchiveRequisitionAsync(Guid id, ArchiveRequisitionDto dto, Guid userId);

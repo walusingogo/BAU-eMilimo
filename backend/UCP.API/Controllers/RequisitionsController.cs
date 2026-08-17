@@ -415,6 +415,52 @@ namespace UCP.API.Controllers
             }
         }
 
+        // ============== RETURN FOR CORRECTIONS ==============
+        [HttpPost("{id}/return")]
+        [RequirePermission("requisitions.approve")]
+        public async Task<IActionResult> ReturnRequisition(Guid id, [FromBody] RejectRequisitionDto dto)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(dto.Reason))
+                    return BadRequest(new { Message = "A correction reason is required." });
+
+                var userId = GetUserId();
+                var user = await _context.Users.FindAsync(userId);
+                if (user == null)
+                    return Unauthorized(new { Message = "User not found" });
+
+                var requisition = await _context.Requisitions.FindAsync(id);
+                if (requisition == null)
+                    return NotFound(new { Message = "Requisition not found" });
+
+                if (!IsUserAuthorizedForAction(user, requisition.Status))
+                    return Forbid("You are not authorized to return this requisition at its current stage.");
+
+                var result = await _requisitionService.ReturnRequisitionAsync(id, dto, userId);
+                return Ok(new
+                {
+                    result.Id,
+                    result.RequisitionNumber,
+                    result.Status,
+                    result.Version,
+                    Message = "Requisition returned for corrections"
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { Message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, new { Message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { Message = ex.Message });
+            }
+        }
+
         // ============== MONEY READY ==============
         [HttpPost("{id}/money-ready")]
         [RequirePermission("requisitions.disburse")]

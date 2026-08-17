@@ -9,6 +9,7 @@ using UCP.Core.Entities.Companions;
 using UCP.Core.Enums;
 using UCP.Core.Services;
 using UCP.Infrastructure.Data;
+using UCP.API.Platform;
 
 namespace UCP.API.Services
 {
@@ -23,6 +24,7 @@ namespace UCP.API.Services
         private readonly IEmailService _emailService;
         private readonly ISystemLogWriter _logWriter;
         private readonly IApprovalNotificationService _approvalNotifications;
+        private readonly IFileStorage _fileStorage;
 
         public ContributionService(
             AppDbContext context,
@@ -33,7 +35,8 @@ namespace UCP.API.Services
             ICurrentUserService currentUserService,
             IEmailService emailService,
             ISystemLogWriter logWriter,
-            IApprovalNotificationService approvalNotifications)
+            IApprovalNotificationService approvalNotifications,
+            IFileStorage fileStorage)
         {
             _context = context;
             _logger = logger;
@@ -44,6 +47,7 @@ namespace UCP.API.Services
             _emailService = emailService;
             _logWriter = logWriter;
             _approvalNotifications = approvalNotifications;
+            _fileStorage = fileStorage;
         }
 
         /// <summary>
@@ -59,9 +63,12 @@ namespace UCP.API.Services
             try
             {
                 if (contribution.Status == ContributionStatus.PENDING.ToString())
+                {
                     await _approvalNotifications.NotifyAsync("contributions.confirm", "Contribution",
                         contribution.ContributionNumber, $"ZMW {contribution.Amount:N2} requires confirmation.",
-                        $"contributions/{contribution.Id}", contribution.CreatedById, allowedRoles: [nameof(UserRole.Accountant)]);
+                        $"contributions/{contribution.Id}", contribution.CreatedById,
+                        allowedRoles: [nameof(UserRole.Accountant), nameof(UserRole.Treasurer)]);
+                }
 
                 if (!contribution.CreatedById.HasValue)
                     return;
@@ -77,6 +84,18 @@ namespace UCP.API.Services
                     contribution.Status,
                     note);
 
+                if (contribution.Status == ContributionStatus.CONFIRMED.ToString() && contribution.UpdatedById.HasValue && contribution.UpdatedById != contribution.CreatedById)
+                {
+                    var approver = await _context.Users.FindAsync(contribution.UpdatedById.Value);
+                    if (approver != null && !string.IsNullOrWhiteSpace(approver.Email))
+                        await _emailService.SendContributionStatusChangedAsync(
+                            approver.Email,
+                            $"{approver.FirstName} {approver.LastName}".Trim(),
+                            contribution.ContributionNumber,
+                            contribution.Status,
+                            "Your approval was recorded successfully.");
+                }
+
                 await _logWriter.WriteAsync(new SystemLog
                 {
                     Level = "Information",
@@ -91,6 +110,15 @@ namespace UCP.API.Services
             {
                 _logger.LogError(ex, "Failed to send contribution status-change notification for {ContributionId}", contribution.Id);
             }
+        }
+
+        private async Task<bool> CanReviewContributionAsync(Guid userId, Contribution contribution)
+        {
+            var user = await _context.Users.AsNoTracking().Where(x => x.Id == userId)
+                .Select(x => new { x.Role, x.GroupId, x.SectionId }).FirstOrDefaultAsync();
+            if (user == null) return false;
+            if (user.Role == UserRole.SuperAdmin.ToString()) return true;
+            return user.Role is nameof(UserRole.Accountant) or nameof(UserRole.Treasurer);
         }
 
         // ============================================
@@ -115,7 +143,7 @@ namespace UCP.API.Services
             if (string.IsNullOrEmpty(relativePath))
                 return string.Empty;
             var trimmed = relativePath.TrimStart('/');
-            return Path.Combine(_webHostEnvironment.WebRootPath, trimmed);
+            return _fileStorage.GetPhysicalPath(trimmed);
         }
 
         // ============================================
@@ -297,10 +325,6 @@ namespace UCP.API.Services
 
         public async Task<ContributionResponse> ConfirmContributionAsync(Guid contributionId, Guid userId)
         {
-            var actingUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
-            if (actingUser == null || (actingUser.Role != UserRole.Accountant.ToString() && actingUser.Role != UserRole.SuperAdmin.ToString()))
-                throw new UnauthorizedAccessException("Only an Accountant can confirm a contribution.");
-
             var contribution = await _context.Contributions
                 .Include(c => c.ContributionType)
                 .Include(c => c.Source)
@@ -314,6 +338,9 @@ namespace UCP.API.Services
 
             if (contribution == null)
                 throw new KeyNotFoundException("Contribution not found");
+
+            if (!await CanReviewContributionAsync(userId, contribution))
+                throw new UnauthorizedAccessException("Only an Accountant or Treasurer can confirm this contribution.");
 
             if (contribution.Status != ContributionStatus.PENDING.ToString() &&
                 contribution.Status != ContributionStatus.RECEIVED.ToString())
@@ -428,15 +455,15 @@ namespace UCP.API.Services
 
         public async Task<ContributionResponse> RejectContributionAsync(Guid contributionId, RejectContributionDto dto, Guid userId)
         {
-            var actingUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
-            if (actingUser == null || (actingUser.Role != UserRole.Accountant.ToString() && actingUser.Role != UserRole.SuperAdmin.ToString()))
-                throw new UnauthorizedAccessException("Only an Accountant can reject a contribution.");
-
             var contribution = await _context.Contributions
+                .Include(c => c.Allocations)
                 .FirstOrDefaultAsync(c => c.Id == contributionId);
 
             if (contribution == null)
                 throw new KeyNotFoundException("Contribution not found");
+
+            if (!await CanReviewContributionAsync(userId, contribution))
+                throw new UnauthorizedAccessException("Only an Accountant or Treasurer can reject this contribution.");
 
             if (contribution.Status != ContributionStatus.PENDING.ToString())
                 throw new InvalidOperationException("Only pending contributions can be rejected");
@@ -458,6 +485,46 @@ namespace UCP.API.Services
 
             return await GetContributionByIdAsync(contributionId)
                 ?? throw new Exception("Failed to retrieve rejected contribution");
+        }
+
+        // ============================================
+        // RETURN FOR CORRECTIONS
+        // ============================================
+
+        public async Task<ContributionResponse> ReturnContributionAsync(Guid contributionId, RejectContributionDto dto, Guid userId)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Reason))
+                throw new InvalidOperationException("A correction reason is required.");
+
+            var contribution = await _context.Contributions
+                .Include(c => c.Allocations)
+                .FirstOrDefaultAsync(c => c.Id == contributionId && !c.IsArchived);
+
+            if (contribution == null)
+                throw new KeyNotFoundException("Contribution not found");
+            if (!await CanReviewContributionAsync(userId, contribution))
+                throw new UnauthorizedAccessException("Only an Accountant or Treasurer can return this contribution for corrections.");
+            if (contribution.Status != ContributionStatus.PENDING.ToString())
+                throw new InvalidOperationException("Only pending contributions can be returned for corrections.");
+
+            contribution.Status = ContributionStatus.DRAFT.ToString();
+            contribution.RejectionReason = dto.Reason.Trim();
+            contribution.ReceivedBy = null;
+            contribution.ConfirmedBy = null;
+            contribution.ConfirmedAt = null;
+            contribution.UpdatedById = userId;
+            contribution.UpdatedDate = DateTime.UtcNow;
+            contribution.Version++;
+            await _context.SaveChangesAsync();
+
+            var reviewer = await _context.Users.FindAsync(userId);
+            await NotifyContributionStatusChangedAsync(
+                contribution,
+                reviewer != null ? $"{reviewer.FirstName} {reviewer.LastName}" : "an approver",
+                dto.Reason.Trim());
+
+            return await GetContributionByIdAsync(contributionId)
+                ?? throw new Exception("Failed to retrieve returned contribution");
         }
 
         // ============================================
@@ -909,7 +976,8 @@ namespace UCP.API.Services
             var total = await query.CountAsync();
 
             var data = await query
-                .OrderByDescending(c => c.CreatedDate)
+                .OrderBy(c => c.Description ?? string.Empty)
+                .ThenBy(c => c.ContributionNumber)
                 .Skip(filter.Offset)
                 .Take(filter.Limit)
                 .Select(c => MapToResponse(c))

@@ -1,6 +1,5 @@
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\appsettings.Development.json
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\appsettings.json
-C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\UCP.API.exe
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\UCP.API.deps.json
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\UCP.API.runtimeconfig.json
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\UCP.API.dll
@@ -209,3 +208,8 @@ C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\obj\Release\net8.0\stat
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\obj\Release\net8.0\staticwebassets.build.endpoints.json
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\obj\Release\net8.0\swae.build.ex.cache
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\wwwroot\images\ucz-logo.png
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\System.DirectoryServices.Protocols.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\runtimes\linux\lib\net8.0\System.DirectoryServices.Protocols.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\runtimes\osx\lib\net8.0\System.DirectoryServices.Protocols.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\runtimes\win\lib\net8.0\System.DirectoryServices.Protocols.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.API\bin\Release\net8.0\UCP.API.exe

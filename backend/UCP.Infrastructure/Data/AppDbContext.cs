@@ -47,9 +47,20 @@ namespace UCP.Infrastructure.Data
         public DbSet<RolePermission> RolePermissions { get; set; }
         public DbSet<SmtpSetting> SmtpSettings { get; set; }
         public DbSet<EmailLog> EmailLogs { get; set; }
+        public DbSet<CommunicationLog> CommunicationLogs { get; set; }
+        public DbSet<SystemLicense> SystemLicenses { get; set; }
+        public DbSet<IntegrationSetting> IntegrationSettings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            modelBuilder.Entity<CommunicationLog>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.HasIndex(x => x.SentAtUtc);
+                entity.HasIndex(x => new { x.Channel, x.Status, x.SentAtUtc });
+                entity.HasIndex(x => x.RetryOfCommunicationLogId);
+            });
+
             // ---------- USER ----------
             modelBuilder.Entity<User>(entity =>
             {
@@ -252,6 +263,8 @@ namespace UCP.Infrastructure.Data
                 entity.HasKey(e => e.Id);
                 entity.HasIndex(e => e.SentAtUtc);
                 entity.HasIndex(e => e.Status);
+                entity.Property(e => e.HtmlBody).HasColumnType("text");
+                entity.HasIndex(e => e.RetryOfEmailLogId);
             });
 
             modelBuilder.Entity<SystemLog>(entity =>
@@ -309,6 +322,21 @@ namespace UCP.Infrastructure.Data
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
+            modelBuilder.Entity<SystemLicense>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.ProtectedPayload).HasColumnType("text");
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            modelBuilder.Entity<IntegrationSetting>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.IntegrationKey).IsUnique();
+                entity.Property(e => e.ProtectedSettings).HasColumnType("text");
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
             modelBuilder.Entity<ContributionAud>(entity =>
             {
                 entity.HasKey(e => e.Id);
@@ -318,7 +346,7 @@ namespace UCP.Infrastructure.Data
 
             modelBuilder.Entity<AssetCategory>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.Code).IsUnique(); entity.Property(x=>x.Version).IsConcurrencyToken(); });
             modelBuilder.Entity<Asset>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.AssetNumber).IsUnique(); entity.Property(x=>x.Version).IsConcurrencyToken(); entity.HasOne(x=>x.AssetCategory).WithMany().HasForeignKey(x=>x.AssetCategoryId).OnDelete(DeleteBehavior.Restrict); });
-            modelBuilder.Entity<AssetCheckout>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.RequestNumber).IsUnique(); entity.HasIndex(x=>new{x.AssetId,x.Status}); entity.Property(x=>x.Version).IsConcurrencyToken(); entity.HasOne(x=>x.Asset).WithMany().HasForeignKey(x=>x.AssetId).OnDelete(DeleteBehavior.Restrict); entity.HasOne(x=>x.Group).WithMany().HasForeignKey(x=>x.GroupId).OnDelete(DeleteBehavior.Restrict); entity.HasOne(x=>x.Section).WithMany().HasForeignKey(x=>x.SectionId).OnDelete(DeleteBehavior.Restrict); entity.HasOne(x=>x.Committee).WithMany().HasForeignKey(x=>x.CommitteeId).OnDelete(DeleteBehavior.Restrict); entity.ToTable(t=>t.HasCheckConstraint("CK_AssetCheckout_OneEntity","(CASE WHEN \"GroupId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"SectionId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"CommitteeId\" IS NULL THEN 0 ELSE 1 END) <= 1")); });
+            modelBuilder.Entity<AssetCheckout>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.RequestNumber).IsUnique(); entity.HasIndex(x=>new{x.AssetId,x.Status}); entity.Property(x=>x.Version).IsConcurrencyToken(); entity.HasOne(x=>x.Asset).WithMany().HasForeignKey(x=>x.AssetId).OnDelete(DeleteBehavior.Restrict); entity.HasOne(x=>x.Group).WithMany().HasForeignKey(x=>x.GroupId).OnDelete(DeleteBehavior.Restrict); entity.HasOne(x=>x.Section).WithMany().HasForeignKey(x=>x.SectionId).OnDelete(DeleteBehavior.Restrict); entity.HasOne(x=>x.Committee).WithMany().HasForeignKey(x=>x.CommitteeId).OnDelete(DeleteBehavior.Restrict); });
             modelBuilder.Entity<AssetMovement>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>new{x.AssetId,x.PerformedAtUtc}); });
             modelBuilder.Entity<AssetAtm>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.EntityId); entity.HasOne(x=>x.Asset).WithMany().HasForeignKey(x=>x.EntityId).OnDelete(DeleteBehavior.Cascade); });
             modelBuilder.Entity<AssetCheckoutAtm>(entity => { entity.HasKey(x=>x.Id); entity.HasIndex(x=>x.EntityId); entity.HasOne(x=>x.AssetCheckout).WithMany().HasForeignKey(x=>x.EntityId).OnDelete(DeleteBehavior.Cascade); });

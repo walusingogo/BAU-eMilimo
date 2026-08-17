@@ -501,8 +501,23 @@ namespace UCP.API.Controllers
 
             await _context.SaveChangesAsync();
 
-            return Ok(new { Message = $"Password reset successfully. Temporary password: {temporaryPassword}" });
+            return Ok(new { Message = "Password reset successfully.", TemporaryPassword = temporaryPassword });
         }
+
+        [HttpPost("{id}/send-password")]
+        [Authorize, RequirePermission("users.manage")]
+        public async Task<IActionResult> SendTemporaryPassword(Guid id, [FromBody] SendTemporaryPasswordRequest request)
+        {
+            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            if (user == null) return NotFound(new { Message = "User not found." });
+            if (string.IsNullOrWhiteSpace(user.Email)) return BadRequest(new { Message = "The user does not have an email address." });
+            if (string.IsNullOrWhiteSpace(request.TemporaryPassword)) return BadRequest(new { Message = "Temporary password is required." });
+
+            await _emailService.SendTemporaryPasswordAsync(user.Email, $"{user.FirstName} {user.LastName}".Trim(), request.TemporaryPassword);
+            return Accepted(new { Message = "Temporary password email queued successfully." });
+        }
+
+        public sealed record SendTemporaryPasswordRequest(string TemporaryPassword);
 
         private string GenerateTemporaryPassword()
         {
@@ -656,6 +671,17 @@ namespace UCP.API.Controllers
         }
 
         // ============= USER SELF-SERVICE ENDPOINTS =============
+
+        [HttpGet("signature-status")]
+        public async Task<IActionResult> GetCurrentUserSignatureStatus()
+        {
+            var userId = GetCurrentUserId();
+            var status = await _context.Users.AsNoTracking()
+                .Where(u => u.Id == userId)
+                .Select(u => new { HasSignature = u.SignatureData != null && u.SignatureData != "", u.SignatureData })
+                .FirstOrDefaultAsync();
+            return status == null ? Unauthorized() : Ok(status);
+        }
 
         [HttpGet("me")]
         public async Task<IActionResult> GetCurrentUserProfile()

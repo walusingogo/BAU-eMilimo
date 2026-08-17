@@ -15,3 +15,15 @@ C:\Users\DELL\Documents\GitHub repos\UCP\backend\UCP.Core\.codex-build\Debug\net
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\.build-verification\UCP.Core.deps.json
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\.build-verification\UCP.Core.dll
 C:\Users\DELL\Documents\GitHub repos\UCP\backend\.build-verification\UCP.Core.pdb
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-license-build\UCP.Core.deps.json
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-license-build\UCP.Core.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-license-build\UCP.Core.pdb
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-communications-build\UCP.Core.deps.json
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-communications-build\UCP.Core.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-communications-build\UCP.Core.pdb
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-multichannel-build\UCP.Core.deps.json
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-multichannel-build\UCP.Core.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-multichannel-build\UCP.Core.pdb
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-commlog-build\UCP.Core.deps.json
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-commlog-build\UCP.Core.dll
+C:\Users\DELL\Documents\GitHub repos\UCP\.tmp-ucp-commlog-build\UCP.Core.pdb

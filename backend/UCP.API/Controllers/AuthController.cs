@@ -26,14 +26,20 @@ namespace UCP.API.Controllers
         private readonly ICurrentUserService _currentUserService;
         private readonly SecuritySettings _security;
         private readonly IEmailService _emailService;
+        private readonly ILicenseValidationService _licenseValidation;
+        private readonly IDirectoryAuthenticationService _directoryAuthentication;
+        private readonly IDirectoryAuthenticationSettingsProvider _authenticationSettings;
 
-        public AuthController(AppDbContext context, IConfiguration config, ICurrentUserService currentUserService, IOptions<SecuritySettings> security, IEmailService emailService)
+        public AuthController(AppDbContext context, IConfiguration config, ICurrentUserService currentUserService, IOptions<SecuritySettings> security, IEmailService emailService, ILicenseValidationService licenseValidation, IDirectoryAuthenticationService directoryAuthentication, IDirectoryAuthenticationSettingsProvider authenticationSettings)
         {
             _context = context;
             _config = config;
             _currentUserService = currentUserService;
             _security = security.Value;
             _emailService = emailService;
+            _licenseValidation = licenseValidation;
+            _directoryAuthentication = directoryAuthentication;
+            _authenticationSettings = authenticationSettings;
         }
 
         private string GetJwtSecret()
@@ -71,8 +77,18 @@ namespace UCP.API.Controllers
                 return Unauthorized(new { Message = statusMessage });
             }
 
-            // Verify password
-            if (!BCryptHash.Verify(dto.Password, user.PasswordHash))
+            var authenticationSettings = await _authenticationSettings.GetAsync();
+            var localPasswordValid = BCryptHash.Verify(dto.Password, user.PasswordHash);
+            var directoryResult = authenticationSettings.Mode.Equals("Local", StringComparison.OrdinalIgnoreCase)
+                ? new DirectoryAuthenticationResult(false, true)
+                : await _directoryAuthentication.AuthenticateAsync(identifier, dto.Password);
+            var passwordValid = authenticationSettings.Mode switch
+            {
+                "ActiveDirectory" => directoryResult.Success || (authenticationSettings.AllowLocalFallback && user.Role == "SuperAdmin" && localPasswordValid),
+                "Hybrid" => directoryResult.Success || (authenticationSettings.AllowLocalFallback && localPasswordValid),
+                _ => localPasswordValid
+            };
+            if (!passwordValid)
             {
                 user.PasswordAttempts++;
                 if (user.PasswordAttempts >= 5)
@@ -85,6 +101,10 @@ namespace UCP.API.Controllers
                 await _context.SaveChangesAsync();
                 return Unauthorized(new { Message = "Invalid email, Membership ID, or password" });
             }
+
+            var license = await _licenseValidation.GetStateAsync();
+            if (!license.IsValid && user.Role is not ("Admin" or "SuperAdmin"))
+                return StatusCode(StatusCodes.Status402PaymentRequired, new { Message = "The system license has expired or is invalid. Please contact the administrator.", LicenseStatus = license.Status, license.ContactEmail, license.ContactPhone });
 
             // Reset attempts, update timestamps, and generate a new session ID
             user.PasswordAttempts = 0;
@@ -108,7 +128,8 @@ namespace UCP.API.Controllers
                     user.Gender,                      // <-- Added
                     user.SectionId,
                     user.GroupId,
-                    user.ProfilePhoto
+                    user.ProfilePhoto,
+                    LicenseRenewalRequired = !license.IsValid
                 }
             });
         }
@@ -131,10 +152,12 @@ namespace UCP.API.Controllers
         }
 
         [HttpGet("client-settings")]
-        public IActionResult GetClientSettings() => Ok(new
+        public async Task<IActionResult> GetClientSettings() => Ok(new
         {
             session = _security.Session,
-            passwordPolicy = _security.PasswordPolicy
+            passwordPolicy = _security.PasswordPolicy,
+            authenticationMode = (await _authenticationSettings.GetAsync()).Mode,
+            churchName = await _context.SystemConfigs.AsNoTracking().Where(x => !x.IsArchived && x.ConfigKey == "church_name").Select(x => x.ConfigValue).FirstOrDefaultAsync() ?? "Church Administration"
         });
 
         [HttpPost("refresh")]
@@ -270,7 +293,8 @@ namespace UCP.API.Controllers
                 .Where(x => !x.IsArchived && x.ConfigKey.ToLower() == "frontend_base_url")
                 .Select(x => x.ConfigValue)
                 .FirstOrDefaultAsync();
-            var frontendUrl = (configuredBaseUrl ?? _config["Frontend:Url"] ?? "http://192.168.1.178:4200").Trim().TrimEnd('/');
+            var requestOrigin = Request.Headers.Origin.FirstOrDefault();
+            var frontendUrl = (requestOrigin ?? configuredBaseUrl ?? _config["Frontend:Url"] ?? "http://localhost:4200").Trim().TrimEnd('/');
             var resetLink = $"{frontendUrl}/reset-password?token={Uri.EscapeDataString(resetToken)}";
 
             // The reset token is only ever delivered via email — it must never

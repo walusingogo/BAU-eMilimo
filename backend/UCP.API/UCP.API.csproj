@@ -25,11 +25,18 @@
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="System.DirectoryServices.Protocols" Version="8.0.1" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\UCP.Core\UCP.Core.csproj" />
     <ProjectReference Include="..\UCP.Infrastructure\UCP.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Licensing\bau-license-public.pem"
+                      Link="Licensing\bau-license-public.pem"
+                      LogicalName="UCP.API.Licensing.bau-license-public.pem" />
   </ItemGroup>
 
   <ItemGroup>

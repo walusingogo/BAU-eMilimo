@@ -17,6 +17,8 @@ namespace UCP.Core.Services
     {
         Task SendPasswordResetAsync(string toEmail, string recipientName, string resetLink, CancellationToken cancellationToken = default);
 
+        Task SendTemporaryPasswordAsync(string toEmail, string recipientName, string temporaryPassword, CancellationToken cancellationToken = default);
+
         Task SendAccountActivatedAsync(string toEmail, string recipientName, CancellationToken cancellationToken = default);
 
         Task SendAccountDeactivatedAsync(string toEmail, string recipientName, CancellationToken cancellationToken = default);
@@ -48,7 +50,7 @@ namespace UCP.Core.Services
             CancellationToken cancellationToken = default);
         Task SendApprovalActionRequiredAsync(string toEmail, string recipientName, string processName,
             string recordNumber, string summary, string approvalUrl, string[] actions,
-            CancellationToken cancellationToken = default);
+            IReadOnlyCollection<string>? ccEmails = null, CancellationToken cancellationToken = default);
         Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default);
         Task SendTestEmailAsync(string toEmail, CancellationToken cancellationToken = default);
     }

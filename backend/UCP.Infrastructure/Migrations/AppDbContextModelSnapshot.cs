@@ -123,13 +123,13 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("action");
 
-                    b.Property<Guid>("AssetId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("asset_id");
-
                     b.Property<Guid?>("AssetCheckoutId")
                         .HasColumnType("uuid")
                         .HasColumnName("asset_checkout_id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
 
                     b.Property<string>("ChangesJson")
                         .IsRequired()
@@ -236,10 +236,6 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("approved_by_id");
 
-                    b.Property<Guid?>("CommitteeId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("committee_id");
-
                     b.Property<Guid>("AssetId")
                         .HasColumnType("uuid")
                         .HasColumnName("asset_id");
@@ -247,6 +243,10 @@ namespace UCP.Infrastructure.Migrations
                     b.Property<DateTime?>("CheckedOutAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("checked_out_at_utc");
+
+                    b.Property<Guid?>("CommitteeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("committee_id");
 
                     b.Property<Guid?>("CreatedById")
                         .HasColumnType("uuid")
@@ -260,10 +260,6 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("driver_id");
 
-                    b.Property<Guid?>("GroupId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("group_id");
-
                     b.Property<DateTime>("ExpectedOutAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expected_out_at_utc");
@@ -271,6 +267,10 @@ namespace UCP.Infrastructure.Migrations
                     b.Property<DateTime>("ExpectedReturnAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expected_return_at_utc");
+
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("group_id");
 
                     b.Property<DateTime?>("LastProcessedTimeStamp")
                         .HasColumnType("timestamp with time zone")
@@ -305,23 +305,23 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("quantity");
 
-                    b.Property<Guid>("RequestedById")
-                        .HasColumnType("uuid")
-                        .HasColumnName("requested_by_id");
-
-                    b.Property<Guid?>("SectionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("section_id");
-
                     b.Property<string>("RequestNumber")
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")
                         .HasColumnName("request_number");
 
+                    b.Property<Guid>("RequestedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by_id");
+
                     b.Property<DateTime?>("ReturnedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("returned_at_utc");
+
+                    b.Property<Guid?>("SectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("section_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -345,9 +345,6 @@ namespace UCP.Infrastructure.Migrations
                     b.HasKey("Id")
                         .HasName("pk_asset_checkouts");
 
-                    b.HasIndex("AssetId", "Status")
-                        .HasDatabaseName("ix_asset_checkouts_asset_id_status");
-
                     b.HasIndex("CommitteeId")
                         .HasDatabaseName("ix_asset_checkouts_committee_id");
 
@@ -360,6 +357,9 @@ namespace UCP.Infrastructure.Migrations
 
                     b.HasIndex("SectionId")
                         .HasDatabaseName("ix_asset_checkouts_section_id");
+
+                    b.HasIndex("AssetId", "Status")
+                        .HasDatabaseName("ix_asset_checkouts_asset_id_status");
 
                     b.ToTable("asset_checkouts", (string)null);
                 });
@@ -600,6 +600,80 @@ namespace UCP.Infrastructure.Migrations
                     b.ToTable("committees", (string)null);
                 });
 
+            modelBuilder.Entity("UCP.Core.Entities.CommunicationLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("channel");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<string>("ProtectedMessage")
+                        .HasColumnType("text")
+                        .HasColumnName("protected_message");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("provider_message_id");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("recipient");
+
+                    b.Property<Guid?>("RetryOfCommunicationLogId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("retry_of_communication_log_id");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at_utc");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_communication_logs");
+
+                    b.HasIndex("RetryOfCommunicationLogId")
+                        .HasDatabaseName("ix_communication_logs_retry_of_communication_log_id");
+
+                    b.HasIndex("SentAtUtc")
+                        .HasDatabaseName("ix_communication_logs_sent_at_utc");
+
+                    b.HasIndex("Channel", "Status", "SentAtUtc")
+                        .HasDatabaseName("ix_communication_logs_channel_status_sent_at_utc");
+
+                    b.ToTable("communication_logs", (string)null);
+                });
+
             modelBuilder.Entity("UCP.Core.Entities.Companions.AssetAtm", b =>
                 {
                     b.Property<Guid>("Id")
@@ -683,24 +757,82 @@ namespace UCP.Infrastructure.Migrations
 
             modelBuilder.Entity("UCP.Core.Entities.Companions.AssetCheckoutAtm", b =>
                 {
-                    b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid").HasColumnName("id");
-                    b.Property<string>("AttachmentType").IsRequired().HasMaxLength(30).HasColumnType("character varying(30)").HasColumnName("attachment_type");
-                    b.Property<Guid?>("CreatedById").HasColumnType("uuid").HasColumnName("created_by_id");
-                    b.Property<DateTime>("CreatedDate").HasColumnType("timestamp with time zone").HasColumnName("created_date");
-                    b.Property<string>("Description").HasColumnType("text").HasColumnName("description");
-                    b.Property<Guid>("EntityId").HasColumnType("uuid").HasColumnName("entity_id");
-                    b.Property<string>("FileName").IsRequired().HasColumnType("text").HasColumnName("file_name");
-                    b.Property<string>("FilePath").IsRequired().HasColumnType("text").HasColumnName("file_path");
-                    b.Property<DateTime?>("LastProcessedTimeStamp").HasColumnType("timestamp with time zone").HasColumnName("last_processed_time_stamp");
-                    b.Property<string>("MimeType").IsRequired().HasColumnType("text").HasColumnName("mime_type");
-                    b.Property<long>("Size").HasColumnType("bigint").HasColumnName("size");
-                    b.Property<Guid?>("UpdatedById").HasColumnType("uuid").HasColumnName("updated_by_id");
-                    b.Property<DateTime>("UpdatedDate").HasColumnType("timestamp with time zone").HasColumnName("updated_date");
-                    b.Property<DateTime>("UploadedAt").HasColumnType("timestamp with time zone").HasColumnName("uploaded_at");
-                    b.Property<Guid?>("UploadedById").HasColumnType("uuid").HasColumnName("uploaded_by_id");
-                    b.Property<int>("Version").HasColumnType("integer").HasColumnName("version");
-                    b.HasKey("Id").HasName("pk_asset_checkouts_atms");
-                    b.HasIndex("EntityId").HasDatabaseName("ix_asset_checkouts_atms_entity_id");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AttachmentType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("attachment_type");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("file_path");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("mime_type");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("uploaded_at");
+
+                    b.Property<Guid?>("UploadedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("uploaded_by_id");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_checkouts_atms");
+
+                    b.HasIndex("EntityId")
+                        .HasDatabaseName("ix_asset_checkouts_atms_entity_id");
+
                     b.ToTable("asset_checkouts_atms", (string)null);
                 });
 
@@ -1544,10 +1676,23 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("category");
 
+                    b.Property<string>("CcEmails")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("cc_emails");
+
                     b.Property<string>("FailureReason")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("failure_reason");
+
+                    b.Property<string>("HtmlBody")
+                        .HasColumnType("text")
+                        .HasColumnName("html_body");
+
+                    b.Property<Guid?>("RetryOfEmailLogId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("retry_of_email_log_id");
 
                     b.Property<DateTime>("SentAtUtc")
                         .HasColumnType("timestamp with time zone")
@@ -1577,6 +1722,9 @@ namespace UCP.Infrastructure.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_email_logs");
+
+                    b.HasIndex("RetryOfEmailLogId")
+                        .HasDatabaseName("ix_email_logs_retry_of_email_log_id");
 
                     b.HasIndex("SentAtUtc")
                         .HasDatabaseName("ix_email_logs_sent_at_utc");
@@ -1874,12 +2022,68 @@ namespace UCP.Infrastructure.Migrations
                     b.ToTable("groups", (string)null);
                 });
 
+            modelBuilder.Entity("UCP.Core.Entities.IntegrationSetting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<string>("IntegrationKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("integration_key");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("ProtectedSettings")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("protected_settings");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_integration_settings");
+
+                    b.HasIndex("IntegrationKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_integration_settings_integration_key");
+
+                    b.ToTable("integration_settings", (string)null);
+                });
+
             modelBuilder.Entity("UCP.Core.Entities.Requisition", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid?>("AccountantApproverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("accountant_approver_id");
 
                     b.Property<decimal>("Amount")
                         .HasColumnType("numeric")
@@ -1909,6 +2113,10 @@ namespace UCP.Infrastructure.Migrations
                     b.Property<Guid?>("ArchivedById")
                         .HasColumnType("uuid")
                         .HasColumnName("archived_by_id");
+
+                    b.Property<Guid?>("ChurchAuthorityApproverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("church_authority_approver_id");
 
                     b.Property<DateTime?>("CollectedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1942,22 +2150,6 @@ namespace UCP.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("first_senior_approver_id");
 
-                    b.Property<Guid?>("AccountantApproverId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("accountant_approver_id");
-
-                    b.Property<Guid?>("ChurchAuthorityApproverId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("church_authority_approver_id");
-
-                    b.Property<Guid?>("MinisterApproverId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("minister_approver_id");
-
-                    b.Property<Guid?>("TreasurerApproverId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("treasurer_approver_id");
-
                     b.Property<string>("FundSource")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1974,6 +2166,10 @@ namespace UCP.Infrastructure.Migrations
                     b.Property<DateTime?>("LastProcessedTimeStamp")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<Guid?>("MinisterApproverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("minister_approver_id");
 
                     b.Property<DateTime?>("MoneyReadyAt")
                         .HasColumnType("timestamp with time zone")
@@ -2023,6 +2219,10 @@ namespace UCP.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("status");
+
+                    b.Property<Guid?>("TreasurerApproverId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("treasurer_approver_id");
 
                     b.Property<Guid?>("UpdatedById")
                         .HasColumnType("uuid")
@@ -2433,6 +2633,57 @@ namespace UCP.Infrastructure.Migrations
                     b.ToTable("system_configs", (string)null);
                 });
 
+            modelBuilder.Entity("UCP.Core.Entities.SystemLicense", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<DateTime>("InstalledAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("installed_at_utc");
+
+                    b.Property<Guid?>("InstalledById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installed_by_id");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("ProtectedPayload")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("protected_payload");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_system_licenses");
+
+                    b.ToTable("system_licenses", (string)null);
+                });
+
             modelBuilder.Entity("UCP.Core.Entities.SystemLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2778,8 +3029,11 @@ namespace UCP.Infrastructure.Migrations
                         .HasConstraintName("fk_asset_checkouts_sections_section_id");
 
                     b.Navigation("Asset");
+
                     b.Navigation("Committee");
+
                     b.Navigation("Group");
+
                     b.Navigation("Section");
                 });
 
@@ -2803,6 +3057,7 @@ namespace UCP.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_asset_checkouts_atms_asset_checkouts_entity_id");
+
                     b.Navigation("AssetCheckout");
                 });
 

@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ucp_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.cluster
+    restart: unless-stopped
+    expose: ["5001"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5001
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-ucp_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}
+      Jwt__Secret: ${JWT_SECRET:?Set JWT_SECRET}
+      Platform__ApplicationName: ${PLATFORM_APPLICATION_NAME:-BAU.BusinessPlatform}
+      Platform__Instance: ${PLATFORM_INSTANCE:-production}
+      Platform__DeploymentId: ${PLATFORM_DEPLOYMENT_ID:?Set PLATFORM_DEPLOYMENT_ID}
+      Platform__SharedDataPath: /app/shared-data
+      FileStorage__SharedRoot: /app/shared-data/uploads
+      License__IdentityMode: Deployment
+    volumes:
+      - shared_data:/app/shared-data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    volumes:
+      - ./deployment/nginx.cluster.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [api]
+
+volumes:
+  postgres_data:
+  shared_data:

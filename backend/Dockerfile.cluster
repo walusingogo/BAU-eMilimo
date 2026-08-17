@@ -1,0 +1,17 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY backend/UCP.sln backend/
+COPY backend/UCP.API/*.csproj backend/UCP.API/
+COPY backend/UCP.Core/*.csproj backend/UCP.Core/
+COPY backend/UCP.Infrastructure/*.csproj backend/UCP.Infrastructure/
+COPY frontend/web/public/images/ucz-logo.png frontend/web/public/images/ucz-logo.png
+RUN dotnet restore backend/UCP.sln
+COPY backend backend
+RUN dotnet publish backend/UCP.API/UCP.API.csproj -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+RUN mkdir -p /app/shared-data/uploads
+EXPOSE 5001
+ENTRYPOINT ["dotnet", "UCP.API.dll"]

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -11,6 +12,7 @@ using UCP.Core.Configuration;
 using UCP.Core.Entities;
 using UCP.Infrastructure.Data;
 using UCP.Infrastructure.SeedData;
+using UCP.API.Platform;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
@@ -27,9 +29,16 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-            ?? ["http://192.168.1.178:4200"];
-        policy.WithOrigins(origins)
+        policy.SetIsOriginAllowed(origin =>
+        {
+            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.Port != 4200) return false;
+            if (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)) return true;
+            if (!System.Net.IPAddress.TryParse(uri.Host, out var ip)) return false;
+            var bytes = ip.GetAddressBytes();
+            return System.Net.IPAddress.IsLoopback(ip) || bytes[0] == 10 ||
+                   (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) ||
+                   (bytes[0] == 192 && bytes[1] == 168);
+        })
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials();
@@ -43,6 +52,14 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
     });
+var configuredSharedDataPath = builder.Configuration["Platform:SharedDataPath"];
+var sharedDataPath = Path.GetFullPath(string.IsNullOrWhiteSpace(configuredSharedDataPath)
+    ? Path.Combine(builder.Environment.ContentRootPath, "shared-data")
+    : Path.IsPathRooted(configuredSharedDataPath) ? configuredSharedDataPath : Path.Combine(builder.Environment.ContentRootPath, configuredSharedDataPath));
+Directory.CreateDirectory(sharedDataPath);
+builder.Services.AddDataProtection()
+    .SetApplicationName(builder.Configuration["Platform:ApplicationName"] ?? "BAU.BusinessPlatform")
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(sharedDataPath, "data-protection-keys")));
 
 builder.Services.AddEndpointsApiExplorer();
 
@@ -52,6 +69,16 @@ builder.Services.AddScoped<IGroupAccessService, GroupAccessService>();
 builder.Services.AddScoped<IRequisitionService, RequisitionService>();
 builder.Services.AddScoped<ILockService, LockService>();
 builder.Services.AddScoped<IContributionService, ContributionService>();
+builder.Services.AddHttpClient("communications");
+builder.Services.AddSingleton<ICommunicationSettingsProvider, CommunicationSettingsProvider>();
+builder.Services.AddScoped<ICommunicationService, CommunicationService>();
+builder.Services.AddSingleton<IDirectoryAuthenticationSettingsProvider, DirectoryAuthenticationSettingsProvider>();
+builder.Services.AddScoped<IDirectoryAuthenticationService, DirectoryAuthenticationService>();
+builder.Services.AddSingleton<IPlatformModuleCatalog, ConfigurationPlatformModuleCatalog>();
+builder.Services.AddSingleton<IPlatformNode, PlatformNodeService>();
+builder.Services.AddSingleton<IFileStorage, FileSystemStorage>();
+builder.Services.AddSingleton<IDistributedLock, PostgreSqlDistributedLock>();
+builder.Services.AddHealthChecks().AddCheck<PlatformHealthCheck>("platform-ready");
 
 // ----- Swagger with JWT Support -----
 builder.Services.AddSwaggerGen(c =>
@@ -115,7 +142,13 @@ builder.Services.AddScoped<UCP.API.Services.IApprovalNotificationService, UCP.AP
 builder.Services.AddSingleton<UCP.API.Services.ISystemLogWriter, UCP.API.Services.SystemLogWriter>();
 builder.Services.AddHostedService<UCP.API.Services.ApplicationLifecycleLogger>();
 builder.Services.AddSingleton<ISmtpSettingsProvider, SmtpSettingsProvider>();
-builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddSingleton<IEmailDeliveryQueue, EmailDeliveryQueue>();
+builder.Services.AddHostedService<EmailDeliveryWorker>();
+builder.Services.AddScoped<EmailService>();
+builder.Services.AddScoped<IEmailService>(sp => sp.GetRequiredService<EmailService>());
+builder.Services.AddScoped<ILicenseValidationService, LicenseValidationService>();
+builder.Services.AddSingleton<IDatabaseBackupService, DatabaseBackupService>();
+builder.Services.AddHostedService<DatabaseBackupScheduler>();
 
 // ----- JWT Authentication -----
 var jwtSecret = builder.Configuration["Jwt:Secret"] ?? throw new InvalidOperationException("JWT Secret is not configured.");
@@ -152,6 +185,24 @@ using (var scope = app.Services.CreateScope())
     try
     {
         await db.Database.MigrateAsync();
+        var legacyLicenseRows = await db.SystemConfigs
+            .Where(x => x.ConfigKey == "license_xml" || x.ConfigKey == "license_xml_pending" || x.ConfigKey == "license_installed_at")
+            .ToListAsync();
+        var legacyXml = legacyLicenseRows.FirstOrDefault(x => x.ConfigKey == "license_xml")?.ConfigValue;
+        if (!await db.SystemLicenses.AnyAsync() && !string.IsNullOrWhiteSpace(legacyXml))
+        {
+            var protector = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>().CreateProtector("UCP.SystemLicense.Payload.v1");
+            db.SystemLicenses.Add(new SystemLicense
+            {
+                Id = Guid.NewGuid(),
+                ProtectedPayload = protector.Protect(legacyXml),
+                InstalledAtUtc = DateTime.UtcNow
+            });
+        }
+        if (legacyLicenseRows.Count > 0)
+            db.SystemConfigs.RemoveRange(legacyLicenseRows);
+        if (legacyLicenseRows.Count > 0 || db.ChangeTracker.HasChanges())
+            await db.SaveChangesAsync();
         if (!await db.SmtpSettings.AnyAsync())
         {
             var bootstrap = builder.Configuration.GetSection("Smtp").Get<SmtpSettings>() ?? new SmtpSettings();
@@ -189,12 +240,16 @@ app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
 app.UseStaticFiles();
 app.UseRouting();
+app.UseMiddleware<UCP.API.Middleware.ModuleAvailabilityMiddleware>();
 
 app.UseAuthentication();
+app.UseMiddleware<UCP.API.Middleware.LicenseEnforcementMiddleware>();
 app.UseMiddleware<UCP.API.Middleware.ProcessLoggingMiddleware>();
 app.UseAuthorization();
 app.UseMiddleware<UCP.API.Middleware.SessionValidationMiddleware>();
 
 app.MapControllers();
+app.MapHealthChecks("/health/ready");
+app.MapGet("/health/live", () => Results.Ok(new { status = "Healthy" })).AllowAnonymous();
 
 app.Run();
