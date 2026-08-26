@@ -1,12 +1,12 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: ucp_postgres
+    container_name: emilimo_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ucp_db
+      POSTGRES_DB: emilimo_db
     ports:
       - "5433:5432"
     volumes:
@@ -20,37 +20,57 @@ services:
       - 8.8.8.8
       - 1.1.1.1
     networks:
-      - ucp_network
+      - emilimo_network
 
   api:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ucp_api
+    container_name: emilimo_api
     restart: unless-stopped
     ports:
       - "5001:5001"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5001
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=ucp_db;Username=postgres;Password=postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=emilimo_db;Username=postgres;Password=postgres
       - Jwt__Secret=YourSuperSecretKeyHereAtLeast32CharactersLong!
       - Frontend__Url=http://localhost:3000
+      - Redis__Enabled=true
+      - Redis__ConnectionString=redis:6379,abortConnect=false,connectTimeout=5000,syncTimeout=5000
     volumes:
       - uploads_data:/app/wwwroot/uploads
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     dns:
       - 8.8.8.8
       - 1.1.1.1
     networks:
-      - ucp_network
+      - emilimo_network
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: emilimo_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks:
+      - emilimo_network
 
 volumes:
   postgres_data:
   uploads_data:
+  redis_data:
 
 networks:
-  ucp_network:
+  emilimo_network:
     driver: bridge

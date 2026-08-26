@@ -2074,6 +2074,165 @@ namespace UCP.Infrastructure.Migrations
                     b.ToTable("integration_settings", (string)null);
                 });
 
+            modelBuilder.Entity("UCP.Core.Entities.LicenseKeyRotationAud", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("action");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("text")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<string>("NewKeyId")
+                        .HasColumnType("text")
+                        .HasColumnName("new_key_id");
+
+                    b.Property<string>("PackageHash")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("package_hash");
+
+                    b.Property<string>("PreviousKeyId")
+                        .HasColumnType("text")
+                        .HasColumnName("previous_key_id");
+
+                    b.Property<string>("ProductCode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("product_code");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("result");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sequence");
+
+                    b.Property<DateTime>("UploadedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("uploaded_at_utc");
+
+                    b.Property<Guid?>("UploadedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("uploaded_by_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_license_key_rotation_audits");
+
+                    b.HasIndex("PackageHash")
+                        .HasDatabaseName("ix_license_key_rotation_audits_package_hash");
+
+                    b.HasIndex("ProductCode", "Sequence")
+                        .HasDatabaseName("ix_license_key_rotation_audits_product_code_sequence");
+
+                    b.ToTable("license_key_rotation_audits", (string)null);
+                });
+
+            modelBuilder.Entity("UCP.Core.Entities.LicenseTrustedKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<DateTime>("InstalledAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("installed_at_utc");
+
+                    b.Property<Guid?>("InstalledById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installed_by_id");
+
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("key_id");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("ProductCode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("product_code");
+
+                    b.Property<string>("PublicKeyPem")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("public_key_pem");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at_utc");
+
+                    b.Property<string>("RotationPackageHash")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("rotation_package_hash");
+
+                    b.Property<long>("RotationSequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("rotation_sequence");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<DateTime>("ValidFromUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("valid_from_utc");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_license_trusted_keys");
+
+                    b.HasIndex("ProductCode", "KeyId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_license_trusted_keys_product_code_key_id");
+
+                    b.HasIndex("ProductCode", "RotationSequence")
+                        .IsUnique()
+                        .HasDatabaseName("ix_license_trusted_keys_product_code_rotation_sequence");
+
+                    b.ToTable("license_trusted_keys", (string)null);
+                });
+
             modelBuilder.Entity("UCP.Core.Entities.Requisition", b =>
                 {
                     b.Property<Guid>("Id")

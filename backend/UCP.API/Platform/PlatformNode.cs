@@ -37,6 +37,6 @@ public sealed class PlatformNodeService(IConfiguration configuration, IWebHostEn
         var raw = $"{host}|{environment.EnvironmentName}|{instance}";
         var nodeId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)))[..12].ToLowerInvariant();
         return new PlatformNode(nodeId, host, environment.EnvironmentName,
-            configuration["Platform:Product"] ?? "UCP", instance);
+            configuration["Platform:Product"] ?? "eMilimo", instance);
     }
 }

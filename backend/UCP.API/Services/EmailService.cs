@@ -58,14 +58,14 @@ public class EmailService : IEmailService
             title: "Reset your password",
             greeting: $"Hi {recipientName},",
             bodyHtml: $"""
-                <p>We received a request to reset your UCZ Trinity Congregation account password.</p>
+                <p>We received a request to reset your [[CHURCH_NAME]] account password.</p>
                 <p style="text-align:center;margin:28px 0;">
                     <a href="{WebUtility.HtmlEncode(resetLink)}" style="background:#1f3a5f;color:#ffffff;padding:12px 28px;border-radius:4px;text-decoration:none;font-weight:600;">Reset Password</a>
                 </p>
                 <p>This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>
                 """);
 
-        return SendAsync(toEmail, "Reset your UCZ Trinity Congregation password", body, cancellationToken, "PasswordReset",
+        return SendAsync(toEmail, "Reset your [[CHURCH_NAME]] password", body, cancellationToken, "PasswordReset",
             companionMessage: $"Password reset requested. Use this secure link within 1 hour: {resetLink}");
     }
 
@@ -83,7 +83,7 @@ public class EmailService : IEmailService
                 <p>Please sign in and change this temporary password immediately. Do not share it with anyone.</p>
                 """);
         return SendAsync(toEmail, "Your temporary account password", body, cancellationToken, "TemporaryPassword",
-            companionMessage: $"Your temporary UCP password is: {temporaryPassword}. Sign in and change it immediately. Do not share it.");
+            companionMessage: $"Your temporary eMilimo password is: {temporaryPassword}. Sign in and change it immediately. Do not share it.");
     }
 
     public Task SendAccountActivatedAsync(string toEmail, string recipientName, CancellationToken cancellationToken = default)
@@ -91,10 +91,10 @@ public class EmailService : IEmailService
         var body = BuildEmail(
             title: "Your account is active",
             greeting: $"Hi {recipientName},",
-            bodyHtml: "<p>Your UCZ Trinity Congregation account has been activated. You can now sign in.</p>");
+            bodyHtml: "<p>Your [[CHURCH_NAME]] account has been activated. You can now sign in.</p>");
 
-        return SendAsync(toEmail, "Your UCZ Trinity Congregation account is active", body, cancellationToken, "AccountActivation",
-            companionMessage: "Your UCP account has been activated. You can now sign in.");
+        return SendAsync(toEmail, "Your [[CHURCH_NAME]] account is active", body, cancellationToken, "AccountActivation",
+            companionMessage: "Your eMilimo account has been activated. You can now sign in.");
     }
 
     public Task SendAccountDeactivatedAsync(string toEmail, string recipientName, CancellationToken cancellationToken = default)
@@ -102,10 +102,10 @@ public class EmailService : IEmailService
         var body = BuildEmail(
             title: "Your account has been deactivated",
             greeting: $"Hi {recipientName},",
-            bodyHtml: "<p>Your UCZ Trinity Congregation account has been deactivated. If you believe this is a mistake, please contact your administrator.</p>");
+            bodyHtml: "<p>Your [[CHURCH_NAME]] account has been deactivated. If you believe this is a mistake, please contact your administrator.</p>");
 
-        return SendAsync(toEmail, "Your UCZ Trinity Congregation account was deactivated", body, cancellationToken, "AccountDeactivation",
-            companionMessage: "Your UCP account has been deactivated. Contact your administrator if you believe this is a mistake.");
+        return SendAsync(toEmail, "Your [[CHURCH_NAME]] account was deactivated", body, cancellationToken, "AccountDeactivation",
+            companionMessage: "Your eMilimo account has been deactivated. Contact your administrator if you believe this is a mistake.");
     }
 
     public Task SendRequisitionStatusChangedAsync(
@@ -202,7 +202,7 @@ public class EmailService : IEmailService
         => SendAsync(toEmail, subject, htmlBody, cancellationToken, "General", companionMessage: subject);
 
     public Task SendTestEmailAsync(string toEmail, CancellationToken cancellationToken = default)
-        => DeliverQueuedAsync(new QueuedEmail(toEmail, "UCZ Trinity Congregation SMTP test",
+        => DeliverQueuedAsync(new QueuedEmail(toEmail, "[[CHURCH_NAME]] SMTP test",
             BuildEmail("SMTP test successful", "Hello,", "<p>Your database-managed email settings are working correctly.</p>"),
             "TestEmail", []), cancellationToken);
 
@@ -231,8 +231,11 @@ public class EmailService : IEmailService
     public async Task DeliverQueuedAsync(QueuedEmail queued, CancellationToken cancellationToken)
     {
         var toEmail = queued.ToEmail;
-        var subject = queued.Subject;
-        var htmlBody = queued.HtmlBody;
+        var churchName = await _context.SystemConfigs.AsNoTracking()
+            .Where(x => !x.IsArchived && x.ConfigKey == "church_name")
+            .Select(x => x.ConfigValue).FirstOrDefaultAsync(cancellationToken) ?? "Church Administration";
+        var subject = queued.Subject.Replace("[[CHURCH_NAME]]", churchName, StringComparison.Ordinal);
+        var htmlBody = queued.HtmlBody.Replace("[[CHURCH_NAME]]", WebUtility.HtmlEncode(churchName), StringComparison.Ordinal);
         var action = queued.Action;
         var ccEmails = queued.CcEmails;
 
@@ -493,7 +496,7 @@ public class EmailService : IEmailService
                                                 <img src="cid:ucz-logo" width="40" height="40" alt="UCZ" style="display:block;width:40px;height:40px;object-fit:contain;border:0;" />
                                             </td>
                                             <td style="padding-left:12px;">
-                                                <div style="color:#241C15;font-size:15px;font-weight:700;line-height:1.2;">UCZ Trinity Congregation</div>
+                                                <div style="color:#241C15;font-size:15px;font-weight:700;line-height:1.2;">[[CHURCH_NAME]]</div>
                                                 <div style="color:#8A7F6A;font-size:11px;letter-spacing:.3px;">Church Administration &amp; Financial Management</div>
                                             </td>
                                         </tr>
@@ -509,7 +512,7 @@ public class EmailService : IEmailService
                             </tr>
                             <tr>
                                 <td style="padding:18px 32px;background:#FAF7F0;color:#8A7F6A;font-size:11.5px;line-height:1.6;border-top:1px solid #EFE9DC;">
-                                    This is an automated message from the UCZ Trinity Congregation platform. Please do not reply to this email.
+                                    This is an automated message from the [[CHURCH_NAME]] platform. Please do not reply to this email.
                                 </td>
                             </tr>
                         </table>

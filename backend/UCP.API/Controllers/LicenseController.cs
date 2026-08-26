@@ -18,7 +18,7 @@ public sealed class LicenseInstallRequest
 }
 
 [ApiController, Route("api/license"), Authorize]
-public class LicenseController(AppDbContext db, ICurrentUserService current, IDataProtectionProvider protection, ILicenseValidationService licenseValidation) : ControllerBase
+public class LicenseController(AppDbContext db, ICurrentUserService current, IDataProtectionProvider protection, ILicenseValidationService licenseValidation, ILicenseKeyRotationService rotations) : ControllerBase
 {
     private readonly IDataProtector _protector = protection.CreateProtector("UCP.SystemLicense.Payload.v1");
     [HttpGet("status")]
@@ -26,6 +26,13 @@ public class LicenseController(AppDbContext db, ICurrentUserService current, IDa
     {
         if (!IsAdministrator()) return Forbid();
         return Ok(await licenseValidation.GetStateAsync());
+    }
+
+    [HttpGet("banner")]
+    public async Task<IActionResult> Banner()
+    {
+        var state = await licenseValidation.GetStateAsync();
+        return Ok(new { state.IsTrial, state.IsValid, state.Status, state.DaysRemaining, state.ExpirationDate });
     }
 
     [HttpPost("install")]
@@ -60,5 +67,32 @@ public class LicenseController(AppDbContext db, ICurrentUserService current, IDa
         return Ok(await licenseValidation.GetStateAsync());
     }
 
+    [HttpGet("trusted-keys")]
+    public async Task<IActionResult> TrustedKeys(CancellationToken cancellationToken)
+    {
+        if (current.GetUserRole() != "SuperAdmin") return Forbid();
+        return Ok(await rotations.GetStateAsync(cancellationToken));
+    }
+
+    [HttpPost("rotate-key")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> RotateKey([FromForm] LicenseRotationUpload request, CancellationToken cancellationToken)
+    {
+        if (current.GetUserRole() != "SuperAdmin") return Forbid();
+        if (request.RotationPackage.Length is 0 or > 262144 || !Path.GetExtension(request.RotationPackage.FileName).Equals(".json", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "Select a signed BAU key-rotation JSON package (maximum 256 KB)." });
+        using var reader = new StreamReader(request.RotationPackage.OpenReadStream());
+        var json = await reader.ReadToEndAsync(cancellationToken);
+        var userId = current.GetUserId();
+        if (!userId.HasValue) return Unauthorized();
+        try { return Ok(await rotations.InstallAsync(json, userId.Value, cancellationToken)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
     private bool IsAdministrator()=>current.GetUserRole() is "Admin" or "SuperAdmin";
+}
+
+public sealed class LicenseRotationUpload
+{
+    public required IFormFile RotationPackage { get; init; }
 }

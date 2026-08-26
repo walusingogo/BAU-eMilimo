@@ -25,14 +25,16 @@ namespace UCP.API.Controllers
         private readonly ICurrentUserService _currentUserService;
         private readonly SecuritySettings _security;
         private readonly IEmailService _emailService;
+        private readonly IMembershipIdGenerator _membershipIds;
 
-        public UsersController(AppDbContext context, ILockService lockService, ICurrentUserService currentUserService, IOptions<SecuritySettings> security, IEmailService emailService)
+        public UsersController(AppDbContext context, ILockService lockService, ICurrentUserService currentUserService, IOptions<SecuritySettings> security, IEmailService emailService, IMembershipIdGenerator membershipIds)
         {
             _context = context;
             _lockService = lockService;
             _currentUserService = currentUserService;
             _security = security.Value;
             _emailService = emailService;
+            _membershipIds = membershipIds;
         }
 
         private Guid GetCurrentUserId()
@@ -219,7 +221,7 @@ namespace UCP.API.Controllers
             if (await _context.Users.AnyAsync(u => u.Email.ToLower() == email))
                 return BadRequest(new { Message = "Email already exists" });
 
-            var membershipId = await GenerateMembershipIdAsync();
+            var membershipId = await _membershipIds.GenerateAsync(dto.Role);
 
             var currentUserId = GetCurrentUserId();
             var temporaryPassword = GenerateTemporaryPassword();
@@ -327,6 +329,7 @@ namespace UCP.API.Controllers
             if (!string.IsNullOrEmpty(dto.FirstName)) user.FirstName = dto.FirstName;
             if (!string.IsNullOrEmpty(dto.MiddleName)) user.MiddleName = dto.MiddleName;
             if (!string.IsNullOrEmpty(dto.LastName)) user.LastName = dto.LastName;
+            if (!string.IsNullOrWhiteSpace(dto.Gender)) user.Gender = dto.Gender.Trim();
             if (!string.IsNullOrWhiteSpace(dto.Email))
             {
                 var email = dto.Email.Trim().ToLowerInvariant();
@@ -644,14 +647,6 @@ namespace UCP.API.Controllers
             return System.Text.RegularExpressions.Regex.IsMatch(normalized, @"^\+[1-9]\d{7,14}$") ? normalized : null;
         }
 
-        private async Task<string> GenerateMembershipIdAsync()
-        {
-            const string prefix = "TRI";
-            var existing = await _context.Users.Where(u => u.MembershipId.StartsWith(prefix)).Select(u => u.MembershipId).ToListAsync();
-            var next = existing.Select(value => int.TryParse(value[prefix.Length..], out var number) ? number : 0).DefaultIfEmpty(0).Max() + 1;
-            return $"{prefix}{next:D4}";
-        }
-
         [HttpGet("{id}/signature")]
         public async Task<IActionResult> GetSignature(Guid id)
         {
@@ -702,6 +697,7 @@ namespace UCP.API.Controllers
                 user.FirstName,
                 user.MiddleName,
                 user.LastName,
+                user.Gender,
                 user.Email,
                 user.PhoneNumber,
                 user.MembershipId,

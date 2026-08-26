@@ -31,7 +31,7 @@ public sealed class DatabaseBackupService(IConfiguration configuration, IFileSto
             ?? throw new InvalidOperationException("The database connection string is not configured.");
         var connection = new NpgsqlConnectionStringBuilder(connectionString);
         var safeSource = source.ToLowerInvariant() switch { "automatic" => "automatic", "pre_restore" => "pre_restore", _ => "manual" };
-        var fileName = $"ucp_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{safeSource}.backup";
+        var fileName = $"emilimo_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{safeSource}.backup";
         var storageKey = $"backups/{fileName}";
         var path = storage.GetPhysicalPath(storageKey);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -195,7 +195,7 @@ public sealed class DatabaseBackupScheduler(IServiceScopeFactory scopes, IDistri
                 var localNow = DateTime.Now;
                 if (TimeOnly.FromDateTime(localNow) < scheduled || Value("auto_backup_last_run_date") == localNow.ToString("yyyy-MM-dd")) continue;
 
-                await using var lease = await distributedLock.TryAcquireAsync("ucp:database-maintenance", stoppingToken);
+        await using var lease = await distributedLock.TryAcquireAsync("emilimo:database-maintenance", stoppingToken);
                 if (lease == null) continue;
                 await scope.ServiceProvider.GetRequiredService<IDatabaseBackupService>().CreateAsync("automatic", stoppingToken);
                 var lastRun = configs.FirstOrDefault(x => x.ConfigKey == "auto_backup_last_run_date");

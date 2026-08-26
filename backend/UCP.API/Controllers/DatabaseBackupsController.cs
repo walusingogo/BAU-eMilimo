@@ -32,7 +32,7 @@ public sealed class DatabaseBackupsController(AppDbContext db, IDatabaseBackupSe
     [HttpPost]
     public async Task<IActionResult> Create(CancellationToken cancellationToken)
     {
-        await using var lease = await distributedLock.TryAcquireAsync("ucp:database-maintenance", cancellationToken);
+        await using var lease = await distributedLock.TryAcquireAsync("emilimo:database-maintenance", cancellationToken);
         if (lease == null) return Conflict(new { message = "Another backup or restore operation is currently running." });
         try { return Ok(new { message = "Database backup created successfully.", file = await backups.CreateAsync("manual", cancellationToken) }); }
         catch (Exception ex) { return BadRequest(new { message = ex.Message }); }
@@ -52,7 +52,7 @@ public sealed class DatabaseBackupsController(AppDbContext db, IDatabaseBackupSe
     {
         if (!string.Equals(request.Confirmation, "RESTORE", StringComparison.Ordinal))
             return BadRequest(new { message = "Enter RESTORE exactly to confirm the database restore." });
-        await using var lease = await distributedLock.TryAcquireAsync("ucp:database-maintenance", cancellationToken);
+        await using var lease = await distributedLock.TryAcquireAsync("emilimo:database-maintenance", cancellationToken);
         if (lease == null) return Conflict(new { message = "Another backup or restore operation is currently running." });
         try
         {

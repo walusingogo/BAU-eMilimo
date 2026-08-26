@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-ucp_db}
+      POSTGRES_DB: ${POSTGRES_DB:-emilimo_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +23,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:5001
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-ucp_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-emilimo_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}
       Jwt__Secret: ${JWT_SECRET:?Set JWT_SECRET}
       Platform__ApplicationName: ${PLATFORM_APPLICATION_NAME:-BAU.BusinessPlatform}
       Platform__Instance: ${PLATFORM_INSTANCE:-production}
@@ -31,11 +31,28 @@ services:
       Platform__SharedDataPath: /app/shared-data
       FileStorage__SharedRoot: /app/shared-data/uploads
       License__IdentityMode: Deployment
+      Redis__Enabled: "true"
+      Redis__ConnectionString: redis:6379,abortConnect=false,connectTimeout=5000,syncTimeout=5000
+      Redis__InstanceName: "emilimo:${PLATFORM_INSTANCE:-production}:"
     volumes:
       - shared_data:/app/shared-data
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   gateway:
     image: nginx:1.27-alpine
@@ -48,3 +65,4 @@ services:
 volumes:
   postgres_data:
   shared_data:
+  redis_data:

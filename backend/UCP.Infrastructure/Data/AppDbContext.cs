@@ -49,6 +49,8 @@ namespace UCP.Infrastructure.Data
         public DbSet<EmailLog> EmailLogs { get; set; }
         public DbSet<CommunicationLog> CommunicationLogs { get; set; }
         public DbSet<SystemLicense> SystemLicenses { get; set; }
+        public DbSet<LicenseTrustedKey> LicenseTrustedKeys { get; set; }
+        public DbSet<LicenseKeyRotationAud> LicenseKeyRotationAudits { get; set; }
         public DbSet<IntegrationSetting> IntegrationSettings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -327,6 +329,23 @@ namespace UCP.Infrastructure.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.ProtectedPayload).HasColumnType("text");
                 entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            modelBuilder.Entity<LicenseTrustedKey>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => new { e.ProductCode, e.KeyId }).IsUnique();
+                entity.HasIndex(e => new { e.ProductCode, e.RotationSequence }).IsUnique();
+                entity.Property(e => e.PublicKeyPem).HasColumnType("text");
+                entity.Property(e => e.Version).IsConcurrencyToken();
+            });
+
+            modelBuilder.Entity<LicenseKeyRotationAud>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.PackageHash);
+                entity.HasIndex(e => new { e.ProductCode, e.Sequence });
+                entity.Property(e => e.FailureReason).HasColumnType("text");
             });
 
             modelBuilder.Entity<IntegrationSetting>(entity =>

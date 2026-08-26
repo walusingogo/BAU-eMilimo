@@ -1,4 +1,4 @@
-# ⛪ United Church Platform (UCP)
+# eMilimo Version 1
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-blue)](https://dotnet.microsoft.com/)
 [![Angular](https://img.shields.io/badge/Angular-21.2-red)](https://angular.io/)
@@ -84,7 +84,7 @@ The platform streamlines **payment requisitions**, **contributions**, **approval
 ### Infrastructure
 - [Docker](https://www.docker.com/) – Containerization  
 - [Docker Compose](https://docs.docker.com/compose/) – Orchestration  
-- [Redis](https://redis.io/) – Optional caching  
+- [Redis](https://redis.io/) – Distributed cache and shared-instance coordination
 
 ---
 
@@ -119,6 +119,10 @@ git clone https://github.com/yourusername/ucp.git
 cd ucp
 ```
 
+### Version 1 setup wizard (Windows)
+
+Run `deployment/installer/eMilimo-Setup.exe`. The BAU Solutions deployment wizard validates Docker Desktop, creates cryptographically random deployment secrets, starts PostgreSQL, Redis, the API and the web portal, then opens the protected first-run setup screen. Completing a new setup installs a 30-day machine-bound trial.
+
 ### Quick Start (Docker)
 ```bash
 docker-compose up --build
@@ -144,10 +148,11 @@ npm run tailwind:watch   # run in separate terminal
 ng serve
 ```
 
-### Default Super Admin Credentials
-⚠️ Change immediately!
-- Email: `superadmin@ucp.org`  
-- Password: `Admin@123!`
+### Bootstrap SuperAdmin
+
+There are no default credentials. A locked, inactive bootstrap record is created only when the user table is empty. The first-run wizard securely claims that record and requires a password conforming to the configured policy.
+
+Only essential configuration is seeded. Demo users, entities, funds, contribution types, sources and bank accounts are never inserted into a clean installation.
 
 ---
 
@@ -208,7 +213,7 @@ Create `.env` in backend:
 ```env
 ASPNETCORE_ENVIRONMENT=Development
 JWT_SECRET=YourSuperSecretKeyHere
-ConnectionStrings__DefaultConnection=Host=localhost;Port=5432;Database=ucp_db;Username=postgres;Password=postgres
+ConnectionStrings__DefaultConnection=Host=localhost;Port=5432;Database=emilimo_db;Username=postgres;Password=postgres
 ```
 
 ### Code Style

@@ -655,13 +655,15 @@ namespace UCP.API.Controllers
             // Map status to required role
             var requiredRole = status switch
             {
-                "SENIOR_REPS_PENDING" => "SeniorRep",
+                "SENIOR_REPS_PENDING" => null,
                 "CHURCH_AUTH_PENDING" => null,
                 "MINISTER_PENDING" => "Minister",
                 _ => null
             };
 
             // If no required role (e.g., DRAFT, APPROVED, etc.), only SuperAdmin can act (already handled)
+            if (status == "SENIOR_REPS_PENDING")
+                return new[] { "SeniorRep", "GroupRep" }.Contains(user.Role);
             if (status == "CHURCH_AUTH_PENDING")
                 return new[] { "Treasurer", "Accountant", "ChurchAuth", "Secretary" }.Contains(user.Role);
             if (requiredRole == null) return false;

@@ -69,6 +69,7 @@ builder.Services.AddScoped<IGroupAccessService, GroupAccessService>();
 builder.Services.AddScoped<IRequisitionService, RequisitionService>();
 builder.Services.AddScoped<ILockService, LockService>();
 builder.Services.AddScoped<IContributionService, ContributionService>();
+builder.Services.AddScoped<IMembershipIdGenerator, MembershipIdGenerator>();
 builder.Services.AddHttpClient("communications");
 builder.Services.AddSingleton<ICommunicationSettingsProvider, CommunicationSettingsProvider>();
 builder.Services.AddScoped<ICommunicationService, CommunicationService>();
@@ -78,14 +79,30 @@ builder.Services.AddSingleton<IPlatformModuleCatalog, ConfigurationPlatformModul
 builder.Services.AddSingleton<IPlatformNode, PlatformNodeService>();
 builder.Services.AddSingleton<IFileStorage, FileSystemStorage>();
 builder.Services.AddSingleton<IDistributedLock, PostgreSqlDistributedLock>();
-builder.Services.AddHealthChecks().AddCheck<PlatformHealthCheck>("platform-ready");
+var redisSettings = builder.Configuration.GetSection("Redis").Get<RedisSettings>() ?? new RedisSettings();
+builder.Services.AddSingleton(redisSettings);
+if (redisSettings.Enabled)
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisSettings.ConnectionString;
+        options.InstanceName = redisSettings.InstanceName;
+    });
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+}
+builder.Services.AddHealthChecks()
+    .AddCheck<PlatformHealthCheck>("platform-ready")
+    .AddCheck<RedisHealthCheck>("redis-ready");
 
 // ----- Swagger with JWT Support -----
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "United Church Platform API",
+        Title = "eMilimo API",
         Version = "v1",
         Description = "Enterprise Church Management System"
     });
@@ -119,22 +136,14 @@ builder.Services.AddSwaggerGen(c =>
 // ----- Database Configuration (Provider-agnostic) -----
 var provider = builder.Configuration["Database:Provider"] ?? "PostgreSQL";
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be supplied by the installer, environment variables or a protected configuration provider.");
 
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
-    if (provider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase))
-    {
-        options.UseNpgsql(connectionString)
-               .UseSnakeCaseNamingConvention();
-    }
-    else if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
-    {
-        options.UseSqlServer(connectionString);
-    }
-    else
-    {
-        throw new InvalidOperationException($"Unsupported database provider: {provider}");
-    }
+    if (!provider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase))
+        throw new InvalidOperationException("eMilimo Version 1 supports PostgreSQL only.");
+    options.UseNpgsql(connectionString).UseSnakeCaseNamingConvention();
 });
 
 builder.Services.AddScoped<UCP.API.Services.IRolePermissionService, UCP.API.Services.RolePermissionService>();
@@ -147,11 +156,14 @@ builder.Services.AddHostedService<EmailDeliveryWorker>();
 builder.Services.AddScoped<EmailService>();
 builder.Services.AddScoped<IEmailService>(sp => sp.GetRequiredService<EmailService>());
 builder.Services.AddScoped<ILicenseValidationService, LicenseValidationService>();
+builder.Services.AddScoped<ILicenseKeyRotationService, LicenseKeyRotationService>();
 builder.Services.AddSingleton<IDatabaseBackupService, DatabaseBackupService>();
 builder.Services.AddHostedService<DatabaseBackupScheduler>();
 
 // ----- JWT Authentication -----
-var jwtSecret = builder.Configuration["Jwt:Secret"] ?? throw new InvalidOperationException("JWT Secret is not configured.");
+var jwtSecret = builder.Configuration["Jwt:Secret"];
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
+    throw new InvalidOperationException("Jwt:Secret must be supplied securely and contain at least 32 characters.");
 var key = Encoding.ASCII.GetBytes(jwtSecret);
 
 builder.Services.AddAuthentication(options =>
@@ -232,7 +244,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "UCP API V1");
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "eMilimo API V1");
     });
 }
 

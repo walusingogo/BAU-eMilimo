@@ -34,11 +34,6 @@ public sealed class ApprovalNotificationService : IApprovalNotificationService
         var users = await _db.Users.AsNoTracking()
             .Where(x => x.Status == "ACTIVE" && x.Email != "")
             .Select(x => new { x.Id, x.Role, x.Email, x.PhoneNumber, x.FirstName, x.LastName }).ToListAsync();
-        var policyPrefix = processName.Equals("Contribution", StringComparison.OrdinalIgnoreCase) ? "notification_contribution" :
-            processName.Equals("Requisition", StringComparison.OrdinalIgnoreCase) ? "notification_requisition" : "notification_asset_request";
-        allowedRoles = await ConfiguredRoles($"{policyPrefix}_to_roles", allowedRoles);
-        var configuredCcRoles = await ConfiguredRoles($"{policyPrefix}_cc_roles", []);
-        ccRoles = (configuredCcRoles ?? []).Concat(ccRoles ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var permittedRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var role in users.Select(x => x.Role).Distinct())
             if (await _permissions.HasAsync(role, permission)) permittedRoles.Add(role);
@@ -58,7 +53,7 @@ public sealed class ApprovalNotificationService : IApprovalNotificationService
         var resolvedRecipients = recipients.DistinctBy(x => x.Id).ToArray();
         if (resolvedRecipients.Length == 0)
         {
-            await _logs.WriteAsync(new SystemLog { Level = "Warning", Category = "Email", Process = processName, Action = "ApprovalRouting", Message = $"No eligible approval email recipient was found for {processName} {recordNumber}. Configured To roles: {string.Join(", ", allowedRoles ?? [])}." });
+            await _logs.WriteAsync(new SystemLog { Level = "Warning", Category = "Email", Process = processName, Action = "ApprovalRouting", Message = $"No eligible approval email recipient was found for {processName} {recordNumber}. Workflow roles: {string.Join(", ", allowedRoles ?? [])}." });
             return;
         }
         foreach (var user in resolvedRecipients)
@@ -68,10 +63,4 @@ public sealed class ApprovalNotificationService : IApprovalNotificationService
         }
     }
 
-    private async Task<string[]?> ConfiguredRoles(string key, string[]? fallback)
-    {
-        var configured = await _db.SystemConfigs.AsNoTracking().Where(x => !x.IsArchived && x.ConfigKey == key).Select(x => x.ConfigValue).FirstOrDefaultAsync();
-        if (configured == null) return fallback;
-        return configured.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    }
 }

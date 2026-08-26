@@ -43,7 +43,7 @@ public class SystemLogWriter : ISystemLogWriter
         // 2. Write to file (with retry and proper file locking)
         var folder = Path.Combine(_environment.ContentRootPath, "logs");
         Directory.CreateDirectory(folder);
-        var path = Path.Combine(folder, $"ucp-{entry.TimestampUtc:yyyy-MM-dd}.log");
+        var path = Path.Combine(folder, $"emilimo-{entry.TimestampUtc:yyyy-MM-dd}.log");
         var line = JsonSerializer.Serialize(entry, new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase

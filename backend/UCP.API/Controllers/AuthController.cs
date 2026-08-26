@@ -120,6 +120,7 @@ namespace UCP.API.Controllers
                 User = new
                 {
                     user.Id,
+                    user.Title,
                     user.FirstName,
                     user.LastName,
                     user.Email,
@@ -183,6 +184,7 @@ namespace UCP.API.Controllers
                 User = new
                 {
                     user.Id,
+                    user.Title,
                     user.FirstName,
                     user.LastName,
                     user.Email,
@@ -215,6 +217,7 @@ namespace UCP.API.Controllers
             return Ok(new
             {
                 user.Id,
+                user.Title,
                 user.FirstName,
                 user.LastName,
                 user.Email,

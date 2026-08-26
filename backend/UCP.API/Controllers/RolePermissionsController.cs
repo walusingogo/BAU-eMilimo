@@ -13,6 +13,7 @@ namespace UCP.API.Controllers;
 public class RolePermissionsController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IRolePermissionService _permissions;
     private static readonly object[] Processes =
     {
         new { Key="requisitions.view", Name="View Requisitions", Module="Requisitions" }, new { Key="requisitions.initiate", Name="Requisition Initiator", Module="Requisitions" },
@@ -29,13 +30,14 @@ public class RolePermissionsController : ControllerBase
         ,new { Key="settings.manage", Name="System Settings", Module="Administration" }
     };
 
-    public RolePermissionsController(AppDbContext context) => _context = context;
+    public RolePermissionsController(AppDbContext context, IRolePermissionService permissions) => (_context, _permissions) = (context, permissions);
 
     [HttpGet, Authorize(Roles="SuperAdmin,Admin")]
     public async Task<IActionResult> GetMatrix()
     {
         var stored = await _context.RolePermissions.ToDictionaryAsync(x => x.Role, x => x.PermissionsJson);
-        var roles = Enum.GetNames<UserRole>().Select(role => new { role, permissions = stored.TryGetValue(role, out var json) ? Read(json) : Defaults(role) });
+        var roles = Enum.GetNames<UserRole>().Where(role => role != nameof(UserRole.SuperAdmin))
+            .Select(role => new { role, permissions = stored.TryGetValue(role, out var json) ? Read(json) : Defaults(role) });
         return Ok(new { processes = Processes, roles });
     }
 
@@ -56,6 +58,7 @@ public class RolePermissionsController : ControllerBase
         if (config == null) { config = new RolePermission { Id=Guid.NewGuid(), Role=parsed.ToString(), CreatedDate=DateTime.UtcNow }; _context.RolePermissions.Add(config); }
         config.PermissionsJson = JsonSerializer.Serialize(permissions); config.UpdatedDate = DateTime.UtcNow; config.Version++;
         await _context.SaveChangesAsync();
+        await _permissions.InvalidateAsync(parsed.ToString());
         return Ok(new { role=parsed.ToString(), permissions });
     }
 

@@ -10,7 +10,7 @@ using UCP.Infrastructure.Data;
 
 namespace UCP.API.Services;
 
-public record LicenseState(bool Installed, bool IsAuthentic, bool IsValid, bool IsPerpetual, string Status,
+public record LicenseState(bool Installed, bool IsAuthentic, bool IsValid, bool IsPerpetual, bool IsTrial, string Status,
     string Customer, string System, string ExpectedUserIdentifier, string ExpectedUserSystem, string ExpirationDate,
     DateTime? ExpiresAtUtc, int? DaysRemaining, long? SecondsRemaining, string ContactEmail, string ContactPhone);
 
@@ -34,15 +34,18 @@ public sealed class LicenseValidationService(AppDbContext db, IConfiguration con
         var system = string.Equals(config["License:IdentityMode"], "Deployment", StringComparison.OrdinalIgnoreCase)
             ? await platformNode.GetDeploymentIdentityAsync() : Environment.MachineName;
         var xml = await ReadPayloadAsync();
-        if (string.IsNullOrWhiteSpace(xml)) return State(false, false, false, false, "NOT_INSTALLED", churchName, "", identifier, system, "", null, email, phone);
+        if (string.IsNullOrWhiteSpace(xml)) return State(false, false, false, false, false, "NOT_INSTALLED", churchName, "", identifier, system, "", null, email, phone);
 
         try
         {
-            var license = XDocument.Parse(xml, LoadOptions.None).Root?.Element("License") ?? throw new InvalidDataException();
+            var document = XDocument.Parse(xml, LoadOptions.None);
+            if (document.Root?.Name.LocalName == "LocalTrial")
+                return ValidateLocalTrial(document.Root, churchName, system, email, phone);
+            var license = document.Root?.Element("License") ?? throw new InvalidDataException();
             if (license.Attribute("Version")?.Value != "2")
             {
                 if (config.GetValue("License:AllowLegacyLicenses", false)) return ValidateLegacy(license, churchName, identifier, system, email, phone);
-                return State(true, false, false, false, "LEGACY_LICENSE_REISSUE_REQUIRED", churchName, "", identifier, system, "", null, email, phone);
+                return State(true, false, false, false, false, "LEGACY_LICENSE_REISSUE_REQUIRED", churchName, "", identifier, system, "", null, email, phone);
             }
 
             var licenseId = Required(license, "LicenseId");
@@ -55,13 +58,16 @@ public sealed class LicenseValidationService(AppDbContext db, IConfiguration con
             var algorithm = Required(license, "SignatureAlgorithm");
             var signature = Convert.FromBase64String(Required(license, "Signature"));
             if (!Guid.TryParseExact(licenseId, "D", out _) || !DateTimeOffset.TryParseExact(issuedAt, "O", CultureInfo.InvariantCulture, DateTimeStyles.None, out _)) throw new InvalidDataException();
-            if (!TrustedKeyIds.Contains(keyId) || algorithm != "RSA-PSS-SHA256") throw new CryptographicException();
+            var keyKnown = TrustedKeyIds.Contains(keyId) || await db.LicenseTrustedKeys.AsNoTracking()
+                .AnyAsync(x => (x.ProductCode == "eMilimo" || x.ProductCode == "UCP") && x.KeyId == keyId);
+            if (!keyKnown || algorithm != "RSA-PSS-SHA256") throw new CryptographicException();
 
             var perpetual = type.Equals("Perpetual", StringComparison.Ordinal) && expiryText == "PERPETUAL";
+            var trial = type.Equals("Trial", StringComparison.Ordinal);
             var dated = DateOnly.TryParseExact(expiryText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var expiry);
-            if (!perpetual && (!type.Equals("Term", StringComparison.Ordinal) || !dated)) throw new InvalidDataException();
+            if (!perpetual && (!(type.Equals("Term", StringComparison.Ordinal) || trial) || !dated)) throw new InvalidDataException();
             var payload = Canonical(licenseId, issuedAt, customer, licensedSystem, type, expiryText, keyId);
-            using var rsa = LoadPublicKey();
+            using var rsa = await LoadPublicKeyAsync(keyId);
             var signed = rsa.VerifyData(Encoding.UTF8.GetBytes(payload), signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
             var identityMatches = identifier.Length > 0 && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(customer), Encoding.UTF8.GetBytes(identifier));
             var systemMatches = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(licensedSystem.ToUpperInvariant()), Encoding.UTF8.GetBytes(system.ToUpperInvariant()));
@@ -70,12 +76,12 @@ public sealed class LicenseValidationService(AppDbContext db, IConfiguration con
             var remaining = perpetual ? TimeSpan.MaxValue : end!.Value - DateTime.UtcNow;
             var expired = !perpetual && remaining <= TimeSpan.Zero;
             var status = !signed ? "INVALID_SIGNATURE" : !identityMatches ? "IDENTIFIER_MISMATCH" : !systemMatches ? "SYSTEM_MISMATCH" : expired ? "EXPIRED" : !perpetual && remaining.TotalDays <= 30 ? "EXPIRING_SOON" : "ACTIVE";
-            return State(true, authentic, authentic && !expired, perpetual, status, churchName, licensedSystem, identifier, system,
+            return State(true, authentic, authentic && !expired, perpetual, trial, status, churchName, licensedSystem, identifier, system,
                 perpetual ? "PERPETUAL" : expiryText, end, email, phone, remaining);
         }
         catch
         {
-            return State(true, false, false, false, "INVALID", churchName, "", identifier, system, "", null, email, phone);
+            return State(true, false, false, false, false, "INVALID", churchName, "", identifier, system, "", null, email, phone);
         }
     }
 
@@ -96,11 +102,30 @@ public sealed class LicenseValidationService(AppDbContext db, IConfiguration con
         var matches = customer == identifier && licensedSystem.Equals(system, StringComparison.OrdinalIgnoreCase);
         DateTime? end = perpetual ? null : new DateTime(expiry.Year, expiry.Month, expiry.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(1);
         var remaining = perpetual ? TimeSpan.MaxValue : end!.Value - DateTime.UtcNow;
-        return State(true, valid && matches, valid && matches && remaining > TimeSpan.Zero, perpetual, "LEGACY_ACTIVE_REISSUE_REQUIRED", churchName, licensedSystem, identifier, system, expiryText, end, email, phone, remaining);
+        return State(true, valid && matches, valid && matches && remaining > TimeSpan.Zero, perpetual, false, "LEGACY_ACTIVE_REISSUE_REQUIRED", churchName, licensedSystem, identifier, system, expiryText, end, email, phone, remaining);
     }
 
-    private static RSA LoadPublicKey()
+    private static LicenseState ValidateLocalTrial(XElement trial, string churchName, string system, string email, string phone)
     {
+        var licensedSystem = Required(trial, "UserSystem");
+        var expiryText = Required(trial, "ExpirationDate");
+        if (!DateOnly.TryParseExact(expiryText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var expiry))
+            throw new InvalidDataException();
+        var systemMatches = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(licensedSystem.ToUpperInvariant()), Encoding.UTF8.GetBytes(system.ToUpperInvariant()));
+        var end = new DateTime(expiry.Year, expiry.Month, expiry.Day, 0, 0, 0, DateTimeKind.Utc).AddDays(1);
+        var remaining = end - DateTime.UtcNow;
+        var valid = systemMatches && remaining > TimeSpan.Zero;
+        return State(true, systemMatches, valid, false, true, !systemMatches ? "SYSTEM_MISMATCH" : valid ? "TRIAL" : "EXPIRED", churchName, licensedSystem, "", system, expiryText, end, email, phone, remaining);
+    }
+
+    private async Task<RSA> LoadPublicKeyAsync(string keyId)
+    {
+        var stored = await db.LicenseTrustedKeys.AsNoTracking().FirstOrDefaultAsync(x => (x.ProductCode == "eMilimo" || x.ProductCode == "UCP") && x.KeyId == keyId);
+        if (stored is not null)
+        {
+            if (stored.Status == "REVOKED" || stored.ValidFromUtc > DateTime.UtcNow) throw new CryptographicException("The licence signing key is not active.");
+            var configured = RSA.Create(); configured.ImportFromPem(stored.PublicKeyPem); return configured;
+        }
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("UCP.API.Licensing.bau-license-public.pem") ?? throw new CryptographicException("License verification key is unavailable.");
         using var reader = new StreamReader(stream);
         var rsa = RSA.Create(); rsa.ImportFromPem(reader.ReadToEnd()); return rsa;
@@ -114,8 +139,8 @@ public sealed class LicenseValidationService(AppDbContext db, IConfiguration con
         if (value.Length is 0 or > 2000 || value.Any(char.IsControl)) throw new InvalidDataException();
         return value;
     }
-    private static LicenseState State(bool installed, bool authentic, bool valid, bool perpetual, string status, string customer, string licensedSystem, string expectedIdentifier, string expectedSystem, string expiry, DateTime? end, string email, string phone, TimeSpan? remaining = null) =>
-        new(installed, authentic, valid, perpetual, status, customer, licensedSystem, expectedIdentifier, expectedSystem, expiry, end,
+    private static LicenseState State(bool installed, bool authentic, bool valid, bool perpetual, bool trial, string status, string customer, string licensedSystem, string expectedIdentifier, string expectedSystem, string expiry, DateTime? end, string email, string phone, TimeSpan? remaining = null) =>
+        new(installed, authentic, valid, perpetual, trial, status, customer, licensedSystem, expectedIdentifier, expectedSystem, expiry, end,
             perpetual ? null : Math.Max(0, (int)Math.Ceiling((remaining ?? TimeSpan.Zero).TotalDays)), perpetual ? null : Math.Max(0, (long)(remaining ?? TimeSpan.Zero).TotalSeconds), email, phone);
     private Task<string?> Value(string key) => db.SystemConfigs.AsNoTracking().Where(x => !x.IsArchived && x.ConfigKey == key).Select(x => x.ConfigValue).FirstOrDefaultAsync();
     private async Task<string?> ReadPayloadAsync()

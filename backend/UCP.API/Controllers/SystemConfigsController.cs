@@ -25,7 +25,8 @@ namespace UCP.API.Controllers
         public async Task<IActionResult> GetAll()
         {
             var configs = await _context.SystemConfigs
-                .Where(c => c.ConfigKey != "license_xml" && c.ConfigKey != "license_xml_pending" && c.ConfigKey != "license_installed_at")
+                .Where(c => c.ConfigKey != "license_xml" && c.ConfigKey != "license_xml_pending" && c.ConfigKey != "license_installed_at" &&
+                    !c.ConfigKey.StartsWith("notification_contribution_") && !c.ConfigKey.StartsWith("notification_requisition_") && !c.ConfigKey.StartsWith("notification_asset_request_"))
                 .OrderBy(c => c.ConfigKey)
                 .Select(c => new SystemConfigDto
                 {
@@ -44,7 +45,7 @@ namespace UCP.API.Controllers
         public async Task<IActionResult> GetById(Guid id)
         {
             var config = await _context.SystemConfigs.FindAsync(id);
-            if (config == null || IsProtectedLicenseKey(config.ConfigKey))
+            if (config == null || IsManagedKey(config.ConfigKey))
                 return NotFound();
 
             return Ok(new SystemConfigDto
@@ -60,7 +61,8 @@ namespace UCP.API.Controllers
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateSystemConfigDto dto)
         {
-            if (IsProtectedLicenseKey(dto.ConfigKey)) return BadRequest(new { Message = "This key is managed by the licensing service." });
+            if (_current.GetUserRole() != "SuperAdmin") return Forbid();
+            if (IsManagedKey(dto.ConfigKey)) return BadRequest(new { Message = "This key is managed by its owning process." });
             if (dto.ConfigKey.Equals("license_user_identifier", StringComparison.OrdinalIgnoreCase) && _current.GetUserRole() != "SuperAdmin") return Forbid();
             if (await _context.SystemConfigs.AnyAsync(c => c.ConfigKey == dto.ConfigKey))
                 return BadRequest(new { Message = "Config key already exists." });
@@ -92,15 +94,19 @@ namespace UCP.API.Controllers
             var config = await _context.SystemConfigs.FindAsync(id);
             if (config == null)
                 return NotFound();
-            if (IsProtectedLicenseKey(config.ConfigKey) || IsProtectedLicenseKey(dto.ConfigKey)) return BadRequest(new { Message = "This key is managed by the licensing service." });
+            if (IsManagedKey(config.ConfigKey) || IsManagedKey(dto.ConfigKey)) return BadRequest(new { Message = "This key is managed by its owning process." });
+            var isSuperAdmin = _current.GetUserRole() == "SuperAdmin";
+            if (!isSuperAdmin && (!string.Equals(config.ConfigKey, dto.ConfigKey, StringComparison.Ordinal) ||
+                                  !string.Equals(config.Description ?? string.Empty, dto.Description ?? string.Empty, StringComparison.Ordinal)))
+                return BadRequest(new { Message = "Only SuperAdmin can change a system configuration key or description." });
             if ((config.ConfigKey.Equals("license_user_identifier", StringComparison.OrdinalIgnoreCase) || dto.ConfigKey.Equals("license_user_identifier", StringComparison.OrdinalIgnoreCase)) && _current.GetUserRole() != "SuperAdmin") return Forbid();
 
             if (await _context.SystemConfigs.AnyAsync(c => c.ConfigKey == dto.ConfigKey && c.Id != id))
                 return BadRequest(new { Message = "Config key already exists." });
 
-            config.ConfigKey = dto.ConfigKey;
+            if (isSuperAdmin) config.ConfigKey = dto.ConfigKey;
             config.ConfigValue = dto.ConfigValue;
-            config.Description = dto.Description;
+            if (isSuperAdmin) config.Description = dto.Description;
 
             await _context.SaveChangesAsync();
 
@@ -117,10 +123,11 @@ namespace UCP.API.Controllers
         [HttpPut("{id}/toggle-status")]
         public async Task<IActionResult> ToggleStatus(Guid id)
         {
+            if (_current.GetUserRole() != "SuperAdmin") return Forbid();
             var config = await _context.SystemConfigs.FindAsync(id);
             if (config == null)
                 return NotFound();
-            if (IsProtectedLicenseKey(config.ConfigKey)) return BadRequest(new { Message = "This key is managed by the licensing service." });
+            if (IsManagedKey(config.ConfigKey)) return BadRequest(new { Message = "This key is managed by its owning process." });
 
             config.IsArchived = !config.IsArchived;
             await _context.SaveChangesAsync();
@@ -131,10 +138,11 @@ namespace UCP.API.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            if (_current.GetUserRole() != "SuperAdmin") return Forbid();
             var config = await _context.SystemConfigs.FindAsync(id);
             if (config == null)
                 return NotFound();
-            if (IsProtectedLicenseKey(config.ConfigKey)) return BadRequest(new { Message = "This key is managed by the licensing service." });
+            if (IsManagedKey(config.ConfigKey)) return BadRequest(new { Message = "This key is managed by its owning process." });
 
             _context.SystemConfigs.Remove(config);
             await _context.SaveChangesAsync();
@@ -143,5 +151,9 @@ namespace UCP.API.Controllers
         }
 
         private static bool IsProtectedLicenseKey(string key) => key.Equals("license_xml", StringComparison.OrdinalIgnoreCase) || key.Equals("license_xml_pending", StringComparison.OrdinalIgnoreCase) || key.Equals("license_installed_at", StringComparison.OrdinalIgnoreCase);
+        private static bool IsManagedKey(string key) => IsProtectedLicenseKey(key) ||
+            key.StartsWith("notification_contribution_", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("notification_requisition_", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("notification_asset_request_", StringComparison.OrdinalIgnoreCase);
     }
 }

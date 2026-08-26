@@ -28,7 +28,7 @@ public class SmtpSettingsController : ControllerBase
     public async Task<IActionResult> Get()
     {
         var row = await _context.SmtpSettings.AsNoTracking().FirstOrDefaultAsync();
-        return Ok(row == null ? new { enabled=false, host="", port=587, enableSsl=true, username="", hasPassword=false, fromEmail="", fromName="UCZ Trinity Congregation", timeoutMilliseconds=15000 } : new
+        return Ok(row == null ? new { enabled=false, host="", port=587, enableSsl=true, username="", hasPassword=false, fromEmail="", fromName="Church Administration", timeoutMilliseconds=15000 } : new
         {
             row.Id, row.Enabled, row.Host, row.Port, row.EnableSsl, row.Username,
             HasPassword = !string.IsNullOrWhiteSpace(row.Password), row.FromEmail, row.FromName, row.TimeoutMilliseconds

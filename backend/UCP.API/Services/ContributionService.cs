@@ -164,6 +164,7 @@ namespace UCP.API.Services
                 UserRole.SuperAdmin.ToString(),
                 UserRole.Admin.ToString(),
                 UserRole.Accountant.ToString(),
+                UserRole.Treasurer.ToString(),
                 UserRole.Secretary.ToString(),
                 UserRole.ChurchAuth.ToString(),
                 UserRole.Minister.ToString(),
@@ -181,6 +182,8 @@ namespace UCP.API.Services
                     (a.SectionId.HasValue && sections.Contains(a.SectionId.Value)) ||
                     (a.CommitteeId.HasValue && committees.Contains(a.CommitteeId.Value))));
             }
+
+            query = query.Where(c => c.Status != ContributionStatus.DRAFT.ToString() || c.CreatedById == userId);
 
             var all = await query.ToListAsync();
 
@@ -821,6 +824,7 @@ namespace UCP.API.Services
                 UserRole.SuperAdmin.ToString(),
                 UserRole.Admin.ToString(),
                 UserRole.Accountant.ToString(),
+                UserRole.Treasurer.ToString(),
                 UserRole.Secretary.ToString(),
                 UserRole.ChurchAuth.ToString(),
                 UserRole.Minister.ToString(),
@@ -892,6 +896,7 @@ namespace UCP.API.Services
                 UserRole.SuperAdmin.ToString(),
                 UserRole.Admin.ToString(),
                 UserRole.Accountant.ToString(),
+                UserRole.Treasurer.ToString(),
                 UserRole.Secretary.ToString(),
                 UserRole.ChurchAuth.ToString(),
                 UserRole.Minister.ToString(),
@@ -1009,6 +1014,7 @@ namespace UCP.API.Services
                 UserRole.SuperAdmin.ToString(),
                 UserRole.Admin.ToString(),
                 UserRole.Accountant.ToString(),
+                UserRole.Treasurer.ToString(),
                 UserRole.Secretary.ToString(),
                 UserRole.ChurchAuth.ToString(),
                 UserRole.Minister.ToString(),

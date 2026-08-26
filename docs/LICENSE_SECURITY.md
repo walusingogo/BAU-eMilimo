@@ -31,3 +31,13 @@ The standalone system returns the signed XML file consumed by UCP.
 `License:AllowLegacyLicenses` temporarily permits existing checksum licences and reports them as `LEGACY_ACTIVE_REISSUE_REQUIRED`. Issue and install a version 2 licence for every deployment, then set this option to `false`. Leaving legacy support enabled preserves the old forgery route.
 
 No client-side mechanism is mathematically impossible to bypass by an attacker who can replace the server binary. Production deployments should additionally use restricted server administration, signed release artifacts, image digests, file-integrity monitoring and secrets stored outside the application directory.
+
+## Signed product-key rotation
+
+UCP does not accept standalone public-key uploads. A SuperAdmin may upload only a versioned JSON rotation package produced by SecureLicenseGen. UCP authenticates that package against three embedded BAU recovery public keys and requires signatures from at least two distinct recovery private keys.
+
+Rotation packages are product-bound, expire after 48 hours, contain the new RSA-3072 public-key fingerprint, and carry a strictly increasing sequence number. Reused packages, reused key identifiers, expired packages, fingerprint mismatches and sequence rollback are rejected and audited in `license_key_rotation_audits`. Accepted product public keys are stored in `license_trusted_keys`; private keys never enter UCP.
+
+Use `RETAIN` when the previous private key was safely lost or during a planned transition, allowing existing licences to continue validating. Use `REVOKE` when compromise is suspected, which invalidates licences signed by that key.
+
+Recovery private keys are not application data. Keep encrypted offline backups under separate custody. Do not copy them into either source repository or any UCP deployment.
