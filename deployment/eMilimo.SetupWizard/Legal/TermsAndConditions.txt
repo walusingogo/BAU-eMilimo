@@ -1,0 +1,37 @@
+EMILIMO SOFTWARE TERMS AND CONDITIONS
+Effective date: 26 August 2026
+
+1. Agreement and licence
+These terms form an agreement between the organisation installing eMilimo (the Customer) and BAU Solutions Limited (BAU Solutions). Subject to payment, an active licence and these terms, BAU Solutions grants the Customer a limited, non-exclusive and non-transferable right to install and use eMilimo for its authorised internal operations.
+
+2. Authorised use
+The Customer may permit its authorised users to access eMilimo. The Customer is responsible for user accounts, permissions, passwords, uploaded content, configuration and lawful use. The Customer must not sell, sublicense, reverse engineer, bypass licensing controls, introduce malicious code or use eMilimo to infringe another person's rights.
+
+3. Installation and dependencies
+The Customer must provide a supported Windows host, network, backups, certificates and required third-party dependencies. Unless separately agreed in writing, infrastructure administration, internet access, Microsoft IIS, Docker, PostgreSQL, Redis, email, SMS and WhatsApp services are operated by the Customer or their respective providers and remain subject to their own terms.
+
+4. Trial and paid licences
+A trial licence is supplied only for evaluation and expires automatically. Continued use requires a valid licence issued by BAU Solutions. Licence files may be bound to an approved customer and machine identity. Expiry, revocation or invalidity may prevent access to the application while preserving the Customer's underlying database.
+
+5. Customer data and backups
+The Customer owns its submitted data and is responsible for its accuracy, lawful collection, retention and backup. The Customer must verify backups and restore procedures before production use and before upgrades.
+
+6. Updates and support
+BAU Solutions may provide fixes and updates according to the applicable support arrangement. The Customer must test updates and maintain a supported version. Customisation, migration, recovery and onsite work may require a separate written quotation.
+
+7. Confidentiality and security
+Each party must protect the other's confidential information using reasonable safeguards. The Customer must restrict administrative access, secure encryption keys and credentials, apply operating-system updates and promptly notify BAU Solutions of suspected compromise affecting eMilimo.
+
+8. Warranties and limitation
+BAU Solutions will provide the software and contracted services with reasonable skill and care. Except where law prohibits exclusion, eMilimo is otherwise provided without implied warranties. BAU Solutions is not liable for indirect, incidental or consequential loss, loss of profit, loss caused by third-party services or loss that could reasonably have been prevented by tested backups. BAU Solutions' aggregate liability is limited to fees paid for the affected software or service during the preceding twelve months.
+
+9. Termination
+BAU Solutions may suspend or terminate the licence for material breach, unauthorised copying, licence circumvention or non-payment after any applicable notice period. On termination, the Customer must stop using the software, without limiting lawful data-export rights.
+
+10. General
+These terms, the applicable quotation, licence and written support agreement form the entire agreement. Changes must be agreed in writing. If one provision is unenforceable, the remaining provisions continue. The agreement is governed by the laws of the Republic of Zambia, and the courts of Zambia have jurisdiction unless the parties agree to arbitration in writing.
+
+Contact: BAU Solutions Limited · 
+Email: info@bausolutions.africa
+Website: www.bausolutions.africa
+

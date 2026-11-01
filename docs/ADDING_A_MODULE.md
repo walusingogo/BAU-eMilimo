@@ -14,7 +14,7 @@ To remove a process, set its manifest to `Enabled: false`. Data is retained, nav
 
 ## Derive Payroll or Purchase Orders
 
-Keep `UCP.Core`-style business entities out of the future platform kernel. The target solution structure is:
+Keep eMilimo-specific business entities out of the reusable platform kernel. The target solution structure is:
 
 ```text
 BAU.Platform.Core            shared contracts and primitives
@@ -22,10 +22,10 @@ BAU.Platform.Infrastructure identity, audit, storage, jobs, notifications
 BAU.Platform.API            middleware, health and module discovery
 Modules.Payroll             payroll domain/API
 Modules.PurchaseOrders      purchasing domain/API
-Products.UCP                UCP composition root
+Products.eMilimo            eMilimo composition root
 Products.Payroll            payroll composition root
 ```
 
 Each product selects modules in configuration and provides branding, licence claims and navigation metadata. The composition root is the only place that should know the complete product.
 
-Before extracting projects, new functionality should follow these boundaries inside UCP. Once two products consume a capability, extract it into `BAU.Platform.*`; avoid premature copying or a shared project containing church-specific entities.
+Before extracting projects, new functionality should follow these boundaries inside eMilimo. Once two products consume a capability, extract it into `BAU.Platform.*`; avoid premature copying or a shared project containing church-specific entities.

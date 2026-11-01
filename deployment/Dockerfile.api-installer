@@ -1,0 +1,6 @@
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY standalone/api/ .
+RUN mkdir -p /app/shared-data/uploads /app/shared-data/data-protection
+EXPOSE 5001
+ENTRYPOINT ["dotnet", "eMilimo.API.dll"]

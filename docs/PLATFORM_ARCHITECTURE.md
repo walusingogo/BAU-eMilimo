@@ -1,6 +1,6 @@
 # BAU Business Platform foundation
 
-UCP is a product assembled from reusable platform capabilities and removable business modules. New products such as Payroll or Purchase Orders should reuse the platform instead of copying UCP-specific services.
+eMilimo is a product assembled from reusable platform capabilities and removable business modules. New products such as Payroll or Purchase Orders should reuse the platform instead of copying eMilimo-specific services.
 
 ## Shared platform capabilities
 
@@ -40,7 +40,7 @@ Start with multiple API nodes and one PostgreSQL primary. Add PgBouncer next. On
 ## Remaining production hardening
 
 - Move email from the in-memory channel to a transactional database outbox.
-- Move all legacy direct filesystem calls onto `IFileStorage`.
+- Keep all application file operations behind `IFileStorage`.
 - Send logs to Seq, Loki or OpenSearch and include the platform node ID.
 - Add an S3-compatible storage provider and retention policies.
 - Use Patroni or a managed PostgreSQL service for automated database failover.

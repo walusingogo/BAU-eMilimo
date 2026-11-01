@@ -37,7 +37,7 @@ services:
       - Jwt__Secret=YourSuperSecretKeyHereAtLeast32CharactersLong!
       - Frontend__Url=http://localhost:3000
       - Redis__Enabled=true
-      - Redis__ConnectionString=redis:6379,abortConnect=false,connectTimeout=5000,syncTimeout=5000
+      - Redis__ConnectionString=redis:6379,password=emilimo-dev-cache,abortConnect=false,connectTimeout=5000,syncTimeout=5000
     volumes:
       - uploads_data:/app/wwwroot/uploads
     depends_on:
@@ -52,14 +52,15 @@ services:
       - emilimo_network
 
   redis:
-    image: redis:7.4-alpine
+    image: valkey/valkey:8.1.10-alpine3.24@sha256:32627109abf6f741121096b45c732f758876803efd7b2e1018ebc0350d117119
+    platform: linux/amd64
     container_name: emilimo_redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "emilimo-dev-cache"]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "VALKEYCLI_AUTH=emilimo-dev-cache valkey-cli ping"]
       interval: 10s
       timeout: 3s
       retries: 10

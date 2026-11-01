@@ -1,0 +1,36 @@
+EMILIMO PRIVACY POLICY
+Effective date: 26 August 2026
+
+1. Scope
+This policy explains how eMilimo processes personal information when deployed for a customer organisation. The Customer normally determines why and how information in eMilimo is processed and acts as the data controller. BAU Solutions Limited acts as a software provider and, where contracted to host or support the system, may act as a processor.
+
+2. Information processed
+Depending on enabled modules, eMilimo may process names, membership identifiers, contact details, roles, organisational assignments, profile photographs, signatures, financial and contribution records, requisitions, asset checkout information, attachments, authentication events, audit entries, device and network information, and communication delivery records.
+
+3. Purposes
+Information is processed to authenticate users; administer church operations; manage permissions and workflows; maintain financial, asset and audit records; send authorised notifications; secure, diagnose and improve the service; meet legal obligations; and provide contracted support.
+
+4. Legal basis and responsibility
+The Customer must establish and document an appropriate lawful basis, provide required notices, limit collection to what is necessary and respond to data-subject requests. Sensitive information must only be entered where authorised and necessary.
+
+5. Storage and sharing
+Production data is stored in infrastructure selected or operated by the Customer unless hosting is separately contracted. Information may be transmitted to configured providers such as SMTP, SMS or WhatsApp services. BAU Solutions does not sell personal information. Information is shared only as instructed, required to provide contracted services, or required by law.
+
+6. Security
+eMilimo includes access control, audit logging and configurable security features. Security also depends on the Customer's hosting, network, passwords, permissions, backups, encryption, endpoint protection and operational practices. No system can guarantee absolute security.
+
+7. Retention and deletion
+The Customer configures or applies retention periods appropriate to its legal and operational requirements. Backup copies may persist until their normal expiry. Uninstalling the application does not automatically erase databases, backups or third-party delivery records.
+
+8. Rights and requests
+Individuals should direct access, correction, deletion, restriction or objection requests to the Customer organisation. BAU Solutions will reasonably assist a contracted Customer where required and technically possible.
+
+9. International transfers
+If the Customer configures providers or hosting outside Zambia, the Customer must ensure appropriate transfer safeguards and provider agreements are in place.
+
+10. Changes and contact
+This policy may be updated to reflect legal, security or product changes. The version presented during installation applies at that time. Privacy and licensing enquiries may be submitted through:
+Website: www.bausolutions.africa
+Email: info@bausolutions.africa
+
+BAU Solutions Limited · Zambia · www.bausolutions.africa

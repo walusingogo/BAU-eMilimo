@@ -1,8 +1,8 @@
 # backend/migrate.ps1
 param(
     [Parameter(Mandatory=$true)]
-    [string]$UCP
+    [string]$eMilimo
 )
 
-dotnet ef migrations add $UCP --project UCP.Infrastructure --startup-project UCP.API
-dotnet ef database update --project UCP.Infrastructure --startup-project UCP.API
+dotnet ef migrations add $eMilimo --project eMilimo.Infrastructure --startup-project eMilimo.API
+dotnet ef database update --project eMilimo.Infrastructure --startup-project eMilimo.API

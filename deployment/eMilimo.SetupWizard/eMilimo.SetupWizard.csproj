@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>eMilimo-Setup</AssemblyName>
+    <RootNamespace>BAUSolutions.eMilimo.Setup</RootNamespace>
+    <Company>BAU Solutions Limited</Company>
+    <Authors>BAU Solutions Limited</Authors>
+    <Product>eMilimo Setup</Product>
+    <AssemblyTitle>eMilimo Setup</AssemblyTitle>
+    <Description>BAU Solutions eMilimo deployment wizard</Description>
+    <Copyright>Copyright © BAU Solutions Limited 2026</Copyright>
+    <ApplicationIcon>..\..\frontend\web\public\images\bau-logo.ico</ApplicationIcon>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
+    <InformationalVersion>1.0.1</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="8.0.9" />
+    <PackageReference Include="Microsoft.Web.Administration" Version="11.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\frontend\web\public\images\bau-logo.png" Link="Branding\bau-logo.png" LogicalName="BAUSolutions.eMilimo.Setup.bau-logo.png" />
+    <EmbeddedResource Include="Assets\setup-background.png" LogicalName="BAUSolutions.eMilimo.Setup.setup-background.png" />
+    <EmbeddedResource Include="Legal\TermsAndConditions.txt" LogicalName="BAUSolutions.eMilimo.Setup.TermsAndConditions.txt" />
+    <EmbeddedResource Include="Legal\PrivacyPolicy.txt" LogicalName="BAUSolutions.eMilimo.Setup.PrivacyPolicy.txt" />
+  </ItemGroup>
+</Project>

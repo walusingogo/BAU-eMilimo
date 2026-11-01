@@ -1,0 +1,4 @@
+FROM nginx:1.27-alpine
+COPY frontend/giving/dist/giving/browser/ /usr/share/nginx/html/
+COPY frontend/giving/nginx.production.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80

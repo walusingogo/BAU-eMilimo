@@ -1,4 +1,18 @@
 .license-secrets/
 **/license-private*.pem
 **/license-private*.pfx
+**/bin/
+**/obj/
+**/logs/
+**/artifacts/
+**/.build-verification/
+**/.verify-*/
+**/node_modules/
+**/dist/
+**/.angular/
+**/coverage/
+release/
+.vs/
+*.user
+*.suo
 

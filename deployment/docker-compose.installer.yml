@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["managed-db"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes: [emilimo_postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: valkey/valkey:8.1.10-alpine3.24@sha256:32627109abf6f741121096b45c732f758876803efd7b2e1018ebc0350d117119
+    platform: linux/amd64
+    profiles: ["managed-cache"]
+    restart: unless-stopped
+    environment:
+      CACHE_PASSWORD: ${CACHE_PASSWORD}
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "${CACHE_PASSWORD}"]
+    volumes: [emilimo_redis_data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "VALKEYCLI_AUTH=\"$${CACHE_PASSWORD}\" valkey-cli ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api-installer
+    restart: unless-stopped
+    ports: ["${API_PORT:-5290}:5001"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5001
+      ConnectionStrings__DefaultConnection: ${DATABASE_CONNECTION}
+      Jwt__Secret: ${JWT_SECRET}
+      Setup__BootstrapToken: ${SETUP_TOKEN}
+      Setup__CongregationName: ${CONGREGATION_NAME}
+      Frontend__Url: ${FRONTEND_URL}
+      Giving__PublicUrl: ${GIVING_URL}
+      Cors__AllowedOrigins__0: ${FRONTEND_URL}
+      Cors__AllowedOrigins__1: ${GIVING_URL}
+      DigitalGiving__PublicApiBaseUrl: ${PUBLIC_API_URL:-http://localhost:5290}
+      DigitalGiving__AllowLoopbackPublicUrls: ${ALLOW_LOOPBACK_PUBLIC_URLS:-false}
+      Platform__Instance: ${INSTANCE}
+      Platform__DeploymentId: ${SYSTEM_ID}
+      Redis__Enabled: ${CACHE_ENABLED:-false}
+      Redis__ConnectionString: ${CACHE_CONNECTION:-localhost:6379,abortConnect=false,connectTimeout=5000,syncTimeout=5000}
+      Redis__InstanceName: "emilimo:v1:"
+      License__IdentityMode: Deployment
+      DataProtection__KeysPath: /app/shared-data/data-protection
+    volumes: [emilimo_shared_data:/app/shared-data]
+
+  web:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.web-installer
+    restart: unless-stopped
+    ports: ["${WEB_PORT:-4200}:80"]
+    depends_on: [api]
+
+  giving:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.giving-installer
+    restart: unless-stopped
+    ports: ["${GIVING_PORT:-9200}:80"]
+    depends_on: [api]
+
+volumes:
+  emilimo_postgres_data:
+  emilimo_redis_data:
+  emilimo_shared_data:

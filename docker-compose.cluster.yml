@@ -32,7 +32,7 @@ services:
       FileStorage__SharedRoot: /app/shared-data/uploads
       License__IdentityMode: Deployment
       Redis__Enabled: "true"
-      Redis__ConnectionString: redis:6379,abortConnect=false,connectTimeout=5000,syncTimeout=5000
+      Redis__ConnectionString: redis:6379,password=${CACHE_PASSWORD:?Set CACHE_PASSWORD},abortConnect=false,connectTimeout=5000,syncTimeout=5000
       Redis__InstanceName: "emilimo:${PLATFORM_INSTANCE:-production}:"
     volumes:
       - shared_data:/app/shared-data
@@ -43,13 +43,16 @@ services:
         condition: service_healthy
 
   redis:
-    image: redis:7.4-alpine
+    image: valkey/valkey:8.1.10-alpine3.24@sha256:32627109abf6f741121096b45c732f758876803efd7b2e1018ebc0350d117119
+    platform: linux/amd64
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "${CACHE_PASSWORD}"]
+    environment:
+      CACHE_PASSWORD: ${CACHE_PASSWORD:?Set CACHE_PASSWORD}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "VALKEYCLI_AUTH=\"$${CACHE_PASSWORD}\" valkey-cli ping"]
       interval: 10s
       timeout: 3s
       retries: 10
