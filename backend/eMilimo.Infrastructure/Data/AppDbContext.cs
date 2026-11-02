@@ -115,6 +115,7 @@ namespace eMilimo.Infrastructure.Data
         public DbSet<OrganizationContributionTypeSummary> OrganizationContributionTypeSummaries { get; set; }
         public DbSet<AccountingIntegrationProfile> AccountingIntegrationProfiles { get; set; }
         public DbSet<AccountingAccountMapping> AccountingAccountMappings { get; set; }
+        public DbSet<AccountingExternalCode> AccountingExternalCodes { get; set; }
         public DbSet<AccountingBatch> AccountingBatches { get; set; }
         public DbSet<AccountingBatchLine> AccountingBatchLines { get; set; }
         public DbSet<AccountingIntegrationProfileAtm> AccountingIntegrationProfileAttachments { get; set; }
@@ -123,6 +124,9 @@ namespace eMilimo.Infrastructure.Data
         public DbSet<AccountingAccountMappingAtm> AccountingAccountMappingAttachments { get; set; }
         public DbSet<AccountingAccountMappingLck> AccountingAccountMappingLocks { get; set; }
         public DbSet<AccountingAccountMappingAud> AccountingAccountMappingAudits { get; set; }
+        public DbSet<AccountingExternalCodeAtm> AccountingExternalCodeAttachments { get; set; }
+        public DbSet<AccountingExternalCodeLck> AccountingExternalCodeLocks { get; set; }
+        public DbSet<AccountingExternalCodeAud> AccountingExternalCodeAudits { get; set; }
         public DbSet<AccountingBatchAtm> AccountingBatchAttachments { get; set; }
         public DbSet<AccountingBatchLck> AccountingBatchLocks { get; set; }
         public DbSet<AccountingBatchAud> AccountingBatchAudits { get; set; }
@@ -1259,6 +1263,16 @@ namespace eMilimo.Infrastructure.Data
                     .HasForeignKey(x => x.AccountingIntegrationProfileId).OnDelete(DeleteBehavior.Cascade);
             });
 
+            modelBuilder.Entity<AccountingExternalCode>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.HasIndex(x => new { x.AccountingIntegrationProfileId, x.CodeType, x.Code }).IsUnique();
+                entity.HasIndex(x => new { x.AccountingIntegrationProfileId, x.CodeType, x.IsActive });
+                entity.Property(x => x.Version).IsConcurrencyToken();
+                entity.HasOne(x => x.AccountingIntegrationProfile).WithMany()
+                    .HasForeignKey(x => x.AccountingIntegrationProfileId).OnDelete(DeleteBehavior.Cascade);
+            });
+
             modelBuilder.Entity<AccountingBatch>(entity =>
             {
                 entity.HasKey(x => x.Id);
@@ -1266,6 +1280,7 @@ namespace eMilimo.Infrastructure.Data
                 entity.HasIndex(x => new { x.AccountingIntegrationProfileId, x.SourceHash })
                     .IsUnique().HasFilter("status <> 'CANCELLED'");
                 entity.HasIndex(x => new { x.Status, x.CreatedDate });
+                entity.HasIndex(x => new { x.AccountingIntegrationProfileId, x.ImportStatus });
                 entity.Property(x => x.Version).IsConcurrencyToken();
                 entity.HasOne(x => x.AccountingIntegrationProfile).WithMany()
                     .HasForeignKey(x => x.AccountingIntegrationProfileId).OnDelete(DeleteBehavior.Restrict);
@@ -1273,6 +1288,7 @@ namespace eMilimo.Infrastructure.Data
                 {
                     t.HasCheckConstraint("ck_accounting_batch_period", "period_end >= period_start");
                     t.HasCheckConstraint("ck_accounting_batch_totals", "debit_total >= 0 AND credit_total >= 0");
+                    t.HasCheckConstraint("ck_accounting_batch_import_counts", "accepted_line_count >= 0 AND rejected_line_count >= 0");
                 });
             });
 
@@ -1291,6 +1307,7 @@ namespace eMilimo.Infrastructure.Data
 
             ConfigureAccountingCompanions<AccountingIntegrationProfileAtm, AccountingIntegrationProfileLck, AccountingIntegrationProfileAud, AccountingIntegrationProfile>(modelBuilder);
             ConfigureAccountingCompanions<AccountingAccountMappingAtm, AccountingAccountMappingLck, AccountingAccountMappingAud, AccountingAccountMapping>(modelBuilder);
+            ConfigureAccountingCompanions<AccountingExternalCodeAtm, AccountingExternalCodeLck, AccountingExternalCodeAud, AccountingExternalCode>(modelBuilder);
             ConfigureAccountingCompanions<AccountingBatchAtm, AccountingBatchLck, AccountingBatchAud, AccountingBatch>(modelBuilder);
             ConfigureAccountingCompanions<AccountingBatchLineAtm, AccountingBatchLineLck, AccountingBatchLineAud, AccountingBatchLine>(modelBuilder);
         }
@@ -1387,6 +1404,7 @@ namespace eMilimo.Infrastructure.Data
 
             AddAccountingAudits<AccountingIntegrationProfile, AccountingIntegrationProfileAud>(AccountingIntegrationProfileAudits);
             AddAccountingAudits<AccountingAccountMapping, AccountingAccountMappingAud>(AccountingAccountMappingAudits);
+            AddAccountingAudits<AccountingExternalCode, AccountingExternalCodeAud>(AccountingExternalCodeAudits);
             AddAccountingAudits<AccountingBatch, AccountingBatchAud>(AccountingBatchAudits);
             AddAccountingAudits<AccountingBatchLine, AccountingBatchLineAud>(AccountingBatchLineAudits);
         }

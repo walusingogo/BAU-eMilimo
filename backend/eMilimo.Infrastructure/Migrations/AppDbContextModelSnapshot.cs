@@ -215,6 +215,10 @@ namespace eMilimo.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("AcceptedLineCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("accepted_line_count");
+
                     b.Property<Guid>("AccountingIntegrationProfileId")
                         .HasColumnType("uuid")
                         .HasColumnName("accounting_integration_profile_id");
@@ -268,6 +272,30 @@ namespace eMilimo.Infrastructure.Migrations
                         .HasColumnType("character varying(120)")
                         .HasColumnName("external_batch_reference");
 
+                    b.Property<string>("ImportFileName")
+                        .HasMaxLength(260)
+                        .HasColumnType("character varying(260)")
+                        .HasColumnName("import_file_name");
+
+                    b.Property<string>("ImportMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("import_message");
+
+                    b.Property<string>("ImportStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("import_status");
+
+                    b.Property<DateTime?>("ImportedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("imported_at_utc");
+
+                    b.Property<Guid?>("ImportedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("imported_by_id");
+
                     b.Property<string>("LastError")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)")
@@ -284,6 +312,10 @@ namespace eMilimo.Infrastructure.Migrations
                     b.Property<DateOnly>("PeriodStart")
                         .HasColumnType("date")
                         .HasColumnName("period_start");
+
+                    b.Property<int>("RejectedLineCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("rejected_line_count");
 
                     b.Property<string>("SourceHash")
                         .IsRequired()
@@ -317,6 +349,9 @@ namespace eMilimo.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_accounting_batches_batch_number");
 
+                    b.HasIndex("AccountingIntegrationProfileId", "ImportStatus")
+                        .HasDatabaseName("ix_accounting_batches_accounting_integration_profile_id_import");
+
                     b.HasIndex("AccountingIntegrationProfileId", "SourceHash")
                         .IsUnique()
                         .HasDatabaseName("ix_accounting_batches_accounting_integration_profile_id_source")
@@ -327,6 +362,8 @@ namespace eMilimo.Infrastructure.Migrations
 
                     b.ToTable("accounting_batches", null, t =>
                         {
+                            t.HasCheckConstraint("ck_accounting_batch_import_counts", "accepted_line_count >= 0 AND rejected_line_count >= 0");
+
                             t.HasCheckConstraint("ck_accounting_batch_period", "period_end >= period_start");
 
                             t.HasCheckConstraint("ck_accounting_batch_totals", "debit_total >= 0 AND credit_total >= 0");
@@ -457,6 +494,95 @@ namespace eMilimo.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_accounting_batch_line_one_side", "(debit > 0 AND credit = 0) OR (credit > 0 AND debit = 0)");
                         });
+                });
+
+            modelBuilder.Entity("eMilimo.Core.Entities.AccountingExternalCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AccountingIntegrationProfileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("accounting_integration_profile_id");
+
+                    b.Property<bool>("AllowsCredit")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allows_credit");
+
+                    b.Property<bool>("AllowsDebit")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allows_debit");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("category");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("code");
+
+                    b.Property<string>("CodeType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("code_type");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_accounting_external_codes");
+
+                    b.HasIndex("AccountingIntegrationProfileId", "CodeType", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_accounting_external_codes_accounting_integration_profile_id");
+
+                    b.HasIndex("AccountingIntegrationProfileId", "CodeType", "IsActive")
+                        .HasDatabaseName("ix_accounting_external_codes_accounting_integration_profile_id1");
+
+                    b.ToTable("accounting_external_codes", (string)null);
                 });
 
             modelBuilder.Entity("eMilimo.Core.Entities.AccountingIntegrationProfile", b =>
@@ -1847,6 +1973,192 @@ namespace eMilimo.Infrastructure.Migrations
                         .HasDatabaseName("ix_accounting_batch_line_lck_locked_by_id");
 
                     b.ToTable("accounting_batch_line_lck", (string)null);
+                });
+
+            modelBuilder.Entity("eMilimo.Core.Entities.Companions.AccountingExternalCodeAtm", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("file_path");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("mime_type");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("uploaded_at");
+
+                    b.Property<Guid?>("UploadedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("uploaded_by_id");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_accounting_external_code_atm");
+
+                    b.HasIndex("EntityId")
+                        .HasDatabaseName("ix_accounting_external_code_atm_entity_id");
+
+                    b.ToTable("accounting_external_code_atm", (string)null);
+                });
+
+            modelBuilder.Entity("eMilimo.Core.Entities.Companions.AccountingExternalCodeAud", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("ChangesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("changes_json");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<DateTime>("PerformedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("performed_at_utc");
+
+                    b.Property<Guid?>("PerformedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("performed_by_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_accounting_external_code_aud");
+
+                    b.HasIndex("EntityId", "PerformedAtUtc")
+                        .HasDatabaseName("ix_accounting_external_code_aud_entity_id_performed_at_utc");
+
+                    b.ToTable("accounting_external_code_aud", (string)null);
+                });
+
+            modelBuilder.Entity("eMilimo.Core.Entities.Companions.AccountingExternalCodeLck", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CreatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_date");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTime?>("LastProcessedTimeStamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_processed_time_stamp");
+
+                    b.Property<string>("LockReason")
+                        .HasColumnType("text")
+                        .HasColumnName("lock_reason");
+
+                    b.Property<DateTime>("LockedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_at");
+
+                    b.Property<Guid>("LockedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("locked_by_id");
+
+                    b.Property<Guid?>("UpdatedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by_id");
+
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_date");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_accounting_external_code_lck");
+
+                    b.HasIndex("EntityId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_accounting_external_code_lck_entity_id");
+
+                    b.HasIndex("LockedById")
+                        .HasDatabaseName("ix_accounting_external_code_lck_locked_by_id");
+
+                    b.ToTable("accounting_external_code_lck", (string)null);
                 });
 
             modelBuilder.Entity("eMilimo.Core.Entities.Companions.AccountingIntegrationProfileAtm", b =>
@@ -10161,6 +10473,18 @@ namespace eMilimo.Infrastructure.Migrations
                     b.Navigation("AccountingBatch");
                 });
 
+            modelBuilder.Entity("eMilimo.Core.Entities.AccountingExternalCode", b =>
+                {
+                    b.HasOne("eMilimo.Core.Entities.AccountingIntegrationProfile", "AccountingIntegrationProfile")
+                        .WithMany()
+                        .HasForeignKey("AccountingIntegrationProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_accounting_external_codes_accounting_integration_profiles_a");
+
+                    b.Navigation("AccountingIntegrationProfile");
+                });
+
             modelBuilder.Entity("eMilimo.Core.Entities.AccountingIntegrationProfile", b =>
                 {
                     b.HasOne("eMilimo.Core.Entities.IntegrationSetting", "IntegrationSetting")
@@ -10363,6 +10687,45 @@ namespace eMilimo.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_accounting_batch_line_lck_users_locked_by_id");
+
+                    b.Navigation("LockedByUser");
+                });
+
+            modelBuilder.Entity("eMilimo.Core.Entities.Companions.AccountingExternalCodeAtm", b =>
+                {
+                    b.HasOne("eMilimo.Core.Entities.AccountingExternalCode", null)
+                        .WithMany()
+                        .HasForeignKey("EntityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_accounting_external_code_atm_accounting_external_codes_enti");
+                });
+
+            modelBuilder.Entity("eMilimo.Core.Entities.Companions.AccountingExternalCodeAud", b =>
+                {
+                    b.HasOne("eMilimo.Core.Entities.AccountingExternalCode", null)
+                        .WithMany()
+                        .HasForeignKey("EntityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_accounting_external_code_aud_accounting_external_codes_enti");
+                });
+
+            modelBuilder.Entity("eMilimo.Core.Entities.Companions.AccountingExternalCodeLck", b =>
+                {
+                    b.HasOne("eMilimo.Core.Entities.AccountingExternalCode", null)
+                        .WithMany()
+                        .HasForeignKey("EntityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_accounting_external_code_lck_accounting_external_codes_enti");
+
+                    b.HasOne("eMilimo.Core.Entities.User", "LockedByUser")
+                        .WithMany()
+                        .HasForeignKey("LockedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_accounting_external_code_lck_users_locked_by_id");
 
                     b.Navigation("LockedByUser");
                 });

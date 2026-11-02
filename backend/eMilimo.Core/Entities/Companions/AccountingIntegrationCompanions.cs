@@ -20,6 +20,9 @@ public abstract class AccountingAuditCompanionBase
 [Table("accounting_account_mapping_atm")] public sealed class AccountingAccountMappingAtm : AttachmentCompanionBase { }
 [Table("accounting_account_mapping_lck")] public sealed class AccountingAccountMappingLck : LockCompanionBase { }
 [Table("accounting_account_mapping_aud")] public sealed class AccountingAccountMappingAud : AccountingAuditCompanionBase { }
+[Table("accounting_external_code_atm")] public sealed class AccountingExternalCodeAtm : AttachmentCompanionBase { }
+[Table("accounting_external_code_lck")] public sealed class AccountingExternalCodeLck : LockCompanionBase { }
+[Table("accounting_external_code_aud")] public sealed class AccountingExternalCodeAud : AccountingAuditCompanionBase { }
 [Table("accounting_batch_atm")] public sealed class AccountingBatchAtm : AttachmentCompanionBase { }
 [Table("accounting_batch_lck")] public sealed class AccountingBatchLck : LockCompanionBase { }
 [Table("accounting_batch_aud")] public sealed class AccountingBatchAud : AccountingAuditCompanionBase { }

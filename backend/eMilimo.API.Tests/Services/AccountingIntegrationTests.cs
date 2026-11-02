@@ -55,6 +55,37 @@ public sealed class AccountingIntegrationTests
         Assert.Contains("'=HYPERLINK", csv);
     }
 
+    [Fact]
+    public void SageExport_UsesConfiguredLegacyPartnerLayout()
+    {
+        var batch = new AccountingBatch
+        {
+            BatchNumber = "ACC-TEST-003",
+            Lines = [Line(1, Guid.NewGuid(), "1000", 125.50m, 0m, "Receipt")]
+        };
+        var layout = new AccountingFileLayout(
+            "SEMICOLON", false, "dd/MM/yyyy", ",", "WINDOWS_1252", "SIGNED_AMOUNT",
+            [new(1, "DATE", "Date"), new(2, "REFERENCE", "Reference"), new(3, "ACCOUNT", "Account"),
+             new(4, "DESCRIPTION", "Description"), new(5, "AMOUNT", "Amount"), new(6, "CONSTANT", "Batch", "LWZ")]);
+
+        var file = new SagePastelFileExportAdapter().Export(new AccountingIntegrationProfile(), batch, layout);
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        var text = Encoding.GetEncoding(1252).GetString(file.Content);
+
+        Assert.DoesNotContain("Date;Reference", text);
+        Assert.Contains("01/11/2026;CON-001;1000;Receipt;125,50;LWZ", text);
+    }
+
+    [Fact]
+    public void FileLayout_RejectsMissingFinancialColumns()
+    {
+        var layout = new AccountingFileLayout("COMMA", true, "yyyy-MM-dd", ".", "UTF8_BOM", "SEPARATE_DEBIT_CREDIT",
+            [new(1, "DATE", "Date"), new(2, "REFERENCE", "Reference"), new(3, "ACCOUNT", "Account"), new(4, "DESCRIPTION", "Description")]);
+
+        var error = Assert.Throws<ArgumentException>(() => AccountingIntegrationService.ValidateFileLayout(layout));
+        Assert.Contains("DEBIT", error.Message);
+    }
+
     private static AccountingBatchLine Line(int number, Guid sourceId, string account, decimal debit, decimal credit, string description) => new()
     {
         Id = Guid.NewGuid(), LineNumber = number, SourceType = "CONTRIBUTION", SourceId = sourceId,

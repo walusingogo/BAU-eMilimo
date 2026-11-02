@@ -122,6 +122,7 @@ builder.Services.AddScoped<IContributionService, ContributionService>();
 builder.Services.AddScoped<IContributionPostingService, ContributionPostingService>();
 builder.Services.AddScoped<IAccountingIntegrationService, AccountingIntegrationService>();
 builder.Services.AddScoped<IAccountingExportAdapter, SagePastelFileExportAdapter>();
+builder.Services.AddHostedService<AccountingImportResponseWorker>();
 builder.Services.AddScoped<IServiceCollectionContributionPostingService, ServiceCollectionContributionPostingService>();
 builder.Services.AddScoped<IContributionDestinationValidationService, ContributionDestinationValidationService>();
 builder.Services.AddScoped<IOrganizationOverviewService, OrganizationOverviewService>();

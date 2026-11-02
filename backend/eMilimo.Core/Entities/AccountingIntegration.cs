@@ -37,6 +37,21 @@ public sealed class AccountingAccountMapping : BaseEntity
     public bool IsActive { get; set; } = true;
 }
 
+[Table("accounting_external_codes")]
+public sealed class AccountingExternalCode : BaseEntity
+{
+    public Guid AccountingIntegrationProfileId { get; set; }
+    public AccountingIntegrationProfile? AccountingIntegrationProfile { get; set; }
+    [MaxLength(30)] public string CodeType { get; set; } = string.Empty;
+    [MaxLength(40)] public string Code { get; set; } = string.Empty;
+    [MaxLength(120)] public string Name { get; set; } = string.Empty;
+    [MaxLength(500)] public string? Description { get; set; }
+    [MaxLength(30)] public string? Category { get; set; }
+    public bool AllowsDebit { get; set; } = true;
+    public bool AllowsCredit { get; set; } = true;
+    public bool IsActive { get; set; } = true;
+}
+
 [Table("accounting_batches")]
 public sealed class AccountingBatch : BaseEntity
 {
@@ -55,6 +70,13 @@ public sealed class AccountingBatch : BaseEntity
     public DateTime? ApprovedAtUtc { get; set; }
     public Guid? ExportedById { get; set; }
     public DateTime? ExportedAtUtc { get; set; }
+    [MaxLength(30)] public string ImportStatus { get; set; } = "NOT_RECEIVED";
+    public DateTime? ImportedAtUtc { get; set; }
+    public Guid? ImportedById { get; set; }
+    [MaxLength(260)] public string? ImportFileName { get; set; }
+    [MaxLength(1000)] public string? ImportMessage { get; set; }
+    public int AcceptedLineCount { get; set; }
+    public int RejectedLineCount { get; set; }
     [MaxLength(1000)] public string? LastError { get; set; }
     public ICollection<AccountingBatchLine> Lines { get; set; } = new List<AccountingBatchLine>();
 }

@@ -38,9 +38,68 @@ public sealed class AccountingIntegrationsController(
     public async Task<IActionResult> UpdateMapping(Guid id, AccountingMappingInput request, CancellationToken cancellationToken) =>
         Ok(await accounting.SaveMappingAsync(id, request, Actor(), cancellationToken));
 
+    [HttpGet("profiles/{profileId:guid}/external-codes"), RequirePermission("accounting.integration.view")]
+    public async Task<IActionResult> ExternalCodes(Guid profileId, [FromQuery] string? codeType, [FromQuery] bool includeInactive = true, CancellationToken cancellationToken = default) =>
+        Ok(await accounting.GetExternalCodesAsync(profileId, codeType, includeInactive, cancellationToken));
+
+    [HttpPost("external-codes"), RequirePermission("accounting.integration.manage")]
+    public async Task<IActionResult> CreateExternalCode(AccountingExternalCodeInput request, CancellationToken cancellationToken) =>
+        Ok(await accounting.SaveExternalCodeAsync(null, request, Actor(), cancellationToken));
+
+    [HttpPut("external-codes/{id:guid}"), RequirePermission("accounting.integration.manage")]
+    public async Task<IActionResult> UpdateExternalCode(Guid id, AccountingExternalCodeInput request, CancellationToken cancellationToken) =>
+        Ok(await accounting.SaveExternalCodeAsync(id, request, Actor(), cancellationToken));
+
+    [HttpPost("profiles/{profileId:guid}/external-codes/import"), RequirePermission("accounting.integration.manage"), Consumes("multipart/form-data")]
+    public async Task<IActionResult> ImportExternalCodes(Guid profileId, IFormFile file, CancellationToken cancellationToken)
+    {
+        if (file is null) return BadRequest(new { message = "Select a Pastel code catalogue CSV or TXT file." });
+        await using var stream = file.OpenReadStream();
+        return Ok(await accounting.ImportExternalCodesAsync(profileId, stream, file.FileName, Actor(), cancellationToken));
+    }
+
+    [HttpGet("profiles/{profileId:guid}/external-codes/export"), RequirePermission("accounting.integration.view")]
+    public async Task<IActionResult> ExportExternalCodes(Guid profileId, CancellationToken cancellationToken)
+    {
+        var file = await accounting.ExportExternalCodesAsync(profileId, cancellationToken);
+        return File(file.Content, file.ContentType, file.FileName);
+    }
+
     [HttpGet("mapping-catalog"), RequirePermission("accounting.integration.view")]
     public async Task<IActionResult> MappingCatalog(CancellationToken cancellationToken) =>
         Ok(await accounting.GetMappingCatalogAsync(cancellationToken));
+
+    [HttpGet("profiles/{profileId:guid}/file-locations"), RequirePermission("accounting.integration.manage")]
+    public async Task<IActionResult> FileLocations(Guid profileId, CancellationToken cancellationToken) =>
+        Ok(await accounting.GetFileLocationsAsync(profileId, cancellationToken));
+
+    [HttpPut("profiles/{profileId:guid}/file-locations"), RequirePermission("accounting.integration.manage")]
+    public async Task<IActionResult> SaveFileLocations(Guid profileId, AccountingFileLocations request, CancellationToken cancellationToken) =>
+        Ok(await accounting.SaveFileLocationsAsync(profileId, request, Actor(), cancellationToken));
+
+    [HttpPost("profiles/{profileId:guid}/file-locations/test"), RequirePermission("accounting.integration.manage")]
+    public async Task<IActionResult> TestFileLocation(Guid profileId, AccountingLocationTestRequest request, CancellationToken cancellationToken) =>
+        Ok(await accounting.TestFileLocationAsync(profileId, request.LocationType, request.Path, cancellationToken));
+
+    [HttpGet("profiles/{profileId:guid}/file-layout"), RequirePermission("accounting.integration.manage")]
+    public async Task<IActionResult> FileLayout(Guid profileId, CancellationToken cancellationToken) =>
+        Ok(await accounting.GetFileLayoutAsync(profileId, cancellationToken));
+
+    [HttpPut("profiles/{profileId:guid}/file-layout"), RequirePermission("accounting.integration.manage")]
+    public async Task<IActionResult> SaveFileLayout(Guid profileId, AccountingFileLayout request, CancellationToken cancellationToken) =>
+        Ok(await accounting.SaveFileLayoutAsync(profileId, request, Actor(), cancellationToken));
+
+    [HttpPost("profiles/{profileId:guid}/file-layout/analyse"), RequirePermission("accounting.integration.manage"), Consumes("multipart/form-data")]
+    public async Task<IActionResult> AnalyseFileLayout(Guid profileId, IFormFile sample, CancellationToken cancellationToken)
+    {
+        if (sample is null) return BadRequest(new { message = "Select a Sage Pastel Partner CSV or TXT sample." });
+        await using var stream = sample.OpenReadStream();
+        return Ok(await accounting.AnalyzeLayoutSampleAsync(profileId, stream, sample.FileName, Actor(), cancellationToken));
+    }
+
+    [HttpPost("profiles/{profileId:guid}/scan-import-responses"), RequirePermission("accounting.batch.export")]
+    public async Task<IActionResult> ScanImportResponses(Guid profileId, CancellationToken cancellationToken) =>
+        Ok(await accounting.ScanImportResponsesAsync(profileId, Actor(), cancellationToken));
 
     [HttpPost("batches/preflight"), RequirePermission("accounting.batch.prepare")]
     public async Task<IActionResult> Preflight(PrepareAccountingBatchRequest request, CancellationToken cancellationToken) =>
@@ -53,6 +112,10 @@ public sealed class AccountingIntegrationsController(
     [HttpGet("batches"), RequirePermission("accounting.integration.view")]
     public async Task<IActionResult> Batches([FromQuery] Guid? profileId, [FromQuery] string? status, CancellationToken cancellationToken) =>
         Ok(await accounting.GetBatchesAsync(profileId, status, cancellationToken));
+
+    [HttpGet("operations-summary"), RequirePermission("accounting.integration.view")]
+    public async Task<IActionResult> OperationsSummary([FromQuery] Guid? profileId, CancellationToken cancellationToken) =>
+        Ok(await accounting.GetOperationsSummaryAsync(profileId, cancellationToken));
 
     [HttpGet("batches/{id:guid}"), RequirePermission("accounting.integration.view")]
     public async Task<IActionResult> Batch(Guid id, CancellationToken cancellationToken)
